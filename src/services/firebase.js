@@ -1,19 +1,19 @@
 import { initializeApp } from 'firebase/app';
+import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
-import { getAuth, PhoneAuthProvider, signInWithCredential, onAuthStateChanged, signOut } from 'firebase/auth';
 
-// Export this so the Recaptcha Modal can use it
-export const firebaseConfig = {
-  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
+// ⚠️ REPLACE THIS OBJECT WITH YOUR ACTUAL FIREBASE KEYS
+const firebaseConfig = {
+  apiKey: "AIzaSyAdYaTYZ84dGz1yLhd6-49P00-NlOVoQIE",
+  authDomain: "demitab-500b3.firebaseapp.com",
+  projectId: "demitab-500b3",
+  storageBucket: "demitab-500b3.firebasestorage.app",
+  messagingSenderId: "480525536907",
+  appId: "1:480525536907:web:be6f58b198817181c8ce8e"
 };
 
 const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
 
-export const db = getFirestore(app);
-export const auth = getAuth(app);
-export { PhoneAuthProvider, signInWithCredential, onAuthStateChanged, signOut };
+export { auth, db, onAuthStateChanged };

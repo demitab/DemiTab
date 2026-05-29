@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { doc, setDoc, onSnapshot } from 'firebase/firestore';
+import { db } from '../services/firebase';
 
 import { AddMembersScreen } from './AddMembersScreen';
 import { AddItemsScreen } from './AddItemsScreen';
@@ -10,9 +12,6 @@ import { LedgerScreen } from './LedgerScreen';
 
 export const EventWorkspace = ({ activeEvent, profile, isDarkMode, toggleTheme, onExit }) => {
   const [activeTab, setActiveTab] = useState('GROUP');
-  
-  // THE FIX: "Data Normalizer". This ensures old events loaded from history 
-  // don't crash the app by missing the new data objects!
   const [eventData, setEventData] = useState({
     id: activeEvent?.id || Date.now().toString(),
     eventName: activeEvent?.eventName || 'New Event',
@@ -24,14 +23,14 @@ export const EventWorkspace = ({ activeEvent, profile, isDarkMode, toggleTheme, 
     actualTotal: activeEvent?.actualTotal || 0,
     paymentStrategy: activeEvent?.paymentStrategy || 'everyone', 
     mainPayerId: activeEvent?.mainPayerId || profile?.id || 'USER_ME', 
-    settlements: activeEvent?.settlements || {}, // Prevents the Red Screen Crash!
+    settlements: activeEvent?.settlements || {}, 
     ledgerData: activeEvent?.ledgerData || null
   });
 
   const tabs = ['GROUP', 'SPLIT BILL', 'SUMMARY', 'YOUR SHARE', 'LEDGER'];
   const themeStyles = isDarkMode ? darkTheme : lightTheme;
 
-  // THE AUTO-SAVER: Runs silently in the background every time you tap anything
+  // ☁️ ENGINE 1: The Cloud Auto-Saver (Pushes to Firestore)
   useEffect(() => {
     const saveChanges = async () => {
       try {
@@ -43,10 +42,27 @@ export const EventWorkspace = ({ activeEvent, profile, isDarkMode, toggleTheme, 
         else pastEvents = [eventData, ...pastEvents];
 
         await AsyncStorage.setItem('demitab_events', JSON.stringify(pastEvents));
-      } catch (e) { console.error('Auto-save failed', e); }
+
+        // Push live copy to Firebase!
+        await setDoc(doc(db, 'events', eventData.id), eventData);
+      } catch (e) { console.error('Cloud auto-save failed', e); }
     };
     saveChanges();
   }, [eventData]);
+
+  // ☁️ ENGINE 2: The Multiplayer Listener (Pulls from Firestore)
+  useEffect(() => {
+    const unsubscribe = onSnapshot(doc(db, 'events', eventData.id), (docSnap) => {
+      if (docSnap.exists()) {
+        const cloudData = docSnap.data();
+        // Prevent infinite loops: only update if data actually changed
+        if (JSON.stringify(cloudData) !== JSON.stringify(eventData)) {
+          setEventData(cloudData);
+        }
+      }
+    });
+    return () => unsubscribe();
+  }, [eventData.id]);
 
   const renderContent = () => {
     switch (activeTab) {
