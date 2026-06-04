@@ -5,7 +5,8 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { PulseButton } from '../components/PulseButton';
 import { ProfileScreen } from './ProfileScreen';
 
-import { collection, query, where, onSnapshot, doc, updateDoc, arrayUnion, or, deleteDoc, arrayRemove } from 'firebase/firestore';
+// FIX: Added 'getDoc' here to read the event before updating it
+import { collection, query, where, onSnapshot, doc, updateDoc, arrayUnion, or, deleteDoc, arrayRemove, getDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
 
 export const DashboardScreen = ({ profile, isDarkMode, toggleTheme, onOpenEvent, onCreateEvent }) => {
@@ -71,13 +72,38 @@ export const DashboardScreen = ({ profile, isDarkMode, toggleTheme, onOpenEvent,
       const eventRef = doc(db, 'events', eventId);
 
       try {
-        const myPhone10 = profile?.phone ? profile.phone.replace(/\D/g, '').slice(-10) : '';
-        await updateDoc(eventRef, {
-          memberIds: arrayUnion(profile.id),
-          memberPhones: myPhone10 ? arrayUnion(myPhone10) : arrayUnion(),
-          members: arrayUnion({ id: profile.id, name: localName || 'Friend', phone: profile?.phone || '' })
-        });
-        Alert.alert("Success!", "You have joined the live event.");
+        // FIX: Verify the phone number against existing members before duplicating
+        const docSnap = await getDoc(eventRef);
+        if (docSnap.exists()) {
+          const evData = docSnap.data();
+          const existingMembers = evData.members || [];
+          const myPhone10 = profile?.phone ? profile.phone.replace(/\D/g, '').slice(-10) : '';
+
+          // Look for 10-digit phone match in the current event members
+          const existingIndex = existingMembers.findIndex(m => m.phone && m.phone.replace(/\D/g, '').slice(-10) === myPhone10);
+          
+          let updatedMembers = [...existingMembers];
+
+          if (existingIndex >= 0) {
+            // Member found! Merge the real ID and Name into the existing spot (No duplicates)
+            updatedMembers[existingIndex].id = profile.id;
+            updatedMembers[existingIndex].name = localName || updatedMembers[existingIndex].name;
+            updatedMembers[existingIndex].phone = profile?.phone || updatedMembers[existingIndex].phone;
+          } else {
+            // Brand new user! Push to array with all details so the Host can see them
+            updatedMembers.push({ id: profile.id, name: localName || 'Friend', phone: profile?.phone || '' });
+          }
+
+          await updateDoc(eventRef, {
+            memberIds: arrayUnion(profile.id),
+            memberPhones: myPhone10 ? arrayUnion(myPhone10) : arrayUnion(),
+            members: updatedMembers // Pushing the cleanly merged array
+          });
+          
+          Alert.alert("Success!", "You have joined the live event.");
+        } else {
+          Alert.alert("Error", "Event not found in the database.");
+        }
       } catch (error) {
         Alert.alert("Error", "Could not join the cloud event.");
       }
@@ -88,7 +114,6 @@ export const DashboardScreen = ({ profile, isDarkMode, toggleTheme, onOpenEvent,
   };
 
   const handleCreateEvent = async () => {
-    // NEW FIX: Prevent creating empty events
     if (!newEventName.trim()) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       Alert.alert("Name Required", "Please add the name of the event first.");

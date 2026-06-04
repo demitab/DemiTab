@@ -8,12 +8,12 @@ export const AddItemsScreen = ({ eventData, profile, isDarkMode, onSaveItems }) 
   const [items, setItems] = useState(eventData.items || []);
   const [itemName, setItemName] = useState('');
   const [quantity, setQuantity] = useState('1');
-  const [amount, setAmount] = useState(''); // RULE 10: Using Amount instead of Price
+  const [amount, setAmount] = useState(''); 
   const [itemType, setItemType] = useState('food');
   const [isScanning, setIsScanning] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
-  // RULE 7: Only Host can scan
+  // Host Verification Lock
   const isHost = profile.id === eventData.hostId || eventData.hostId === 'USER_ME';
 
   const pickImage = async (useCamera) => {
@@ -66,7 +66,7 @@ export const AddItemsScreen = ({ eventData, profile, isDarkMode, onSaveItems }) 
     if (!itemName || !amount) return;
     const parsedQty = parseInt(quantity) || 1;
     const parsedAmount = parseFloat(amount);
-    const calculatedPrice = parsedAmount / parsedQty; // RULE 10: Math translation
+    const calculatedPrice = parsedAmount / parsedQty; 
 
     if (editingId) {
       setItems(items.map(item => item.id === editingId ? { 
@@ -87,7 +87,10 @@ export const AddItemsScreen = ({ eventData, profile, isDarkMode, onSaveItems }) 
   const toggleFoodMember = (itemId, memberId) => setItems(items.map(item => { if (item.id !== itemId) return item; return { ...item, assignedTo: item.assignedTo.includes(memberId) ? item.assignedTo.filter(id => id !== memberId) : [...item.assignedTo, memberId] }; }));
   const toggleSelectAllFood = (itemId) => setItems(items.map(item => { if (item.id !== itemId) return item; return { ...item, assignedTo: item.assignedTo?.length === eventData.members.length ? [] : eventData.members.map(m => m.id) }; }));
   const adjustDrinkCount = (itemId, memberId, delta, maxQty) => setItems(items.map(item => { if (item.id !== itemId) return item; const currentCount = item.drinkCounts[memberId] || 0; const totalAssigned = Object.values(item.drinkCounts).reduce((a, b) => a + b, 0); if (delta > 0 && totalAssigned >= maxQty) return item; return { ...item, drinkCounts: { ...item.drinkCounts, [memberId]: Math.max(0, currentCount + delta) } }; }));
-  const quickToggleType = (itemId, currentType) => setItems(items.map(item => item.id === itemId ? { ...item, type: currentType === 'food' ? 'drink' : 'food', assignedTo: currentType === 'food' ? [] : eventData.members.map(m => m.id), drinkCounts: {} } : item));
+  const quickToggleType = (itemId, currentType) => {
+    if (!isHost) return Alert.alert('Access Denied', 'Only the Host can change item types.');
+    setItems(items.map(item => item.id === itemId ? { ...item, type: currentType === 'food' ? 'drink' : 'food', assignedTo: currentType === 'food' ? [] : eventData.members.map(m => m.id), drinkCounts: {} } : item));
+  };
 
   const handleSaveItems = () => {
     const invalidDrink = items.find(item => item.type === 'drink' && Object.values(item.drinkCounts || {}).reduce((a, b) => a + b, 0) !== item.qty);
@@ -100,30 +103,34 @@ export const AddItemsScreen = ({ eventData, profile, isDarkMode, onSaveItems }) 
   return (
     <KeyboardAvoidingView style={[styles.container, themeStyles.background]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       
+      {/* HOST ONLY: Scanning and Adding features are locked to the Host */}
       {isHost && (
-        <View style={styles.scanWrapper}>
-          <PulseButton style={[styles.largeScanBtn, themeStyles.primaryBtn]} onPress={() => pickImage(true)}>
-            <Text style={[styles.largeScanText, themeStyles.primaryBtnText]}>{isScanning ? '⏳ Reading...' : '📷 Scan Bill'}</Text>
-          </PulseButton>
-          <TouchableOpacity style={styles.galleryBtn} onPress={() => pickImage(false)}><Text style={[styles.galleryText, themeStyles.linkText]}>or upload from Gallery</Text></TouchableOpacity>
-        </View>
+        <>
+          <View style={styles.scanWrapper}>
+            <PulseButton style={[styles.largeScanBtn, themeStyles.primaryBtn]} onPress={() => pickImage(true)}>
+              <Text style={[styles.largeScanText, themeStyles.primaryBtnText]}>{isScanning ? '⏳ Reading...' : '📷 Scan Bill'}</Text>
+            </PulseButton>
+            <TouchableOpacity style={styles.galleryBtn} onPress={() => pickImage(false)}><Text style={[styles.galleryText, themeStyles.linkText]}>or upload from Gallery</Text></TouchableOpacity>
+          </View>
+
+          <Text style={styles.sectionDivider}>OR ADD MANUALLY</Text>
+
+          <View style={styles.manualEntryContainer}>
+            <View style={styles.inputRow}>
+              <TextInput style={[styles.input, themeStyles.input, {flex: 3}]} placeholder="Item Name" value={itemName} onChangeText={setItemName} placeholderTextColor={isDarkMode?'#9CA3AF':'#6B7280'} />
+              <TextInput style={[styles.input, themeStyles.input, {flex: 1.2}]} placeholder="Qty" keyboardType="numeric" value={quantity} onChangeText={setQuantity} placeholderTextColor={isDarkMode?'#9CA3AF':'#6B7280'} />
+              <TextInput style={[styles.input, themeStyles.input, {flex: 2}]} placeholder="Total Amt" keyboardType="numeric" value={amount} onChangeText={setAmount} placeholderTextColor={isDarkMode?'#9CA3AF':'#6B7280'} />
+            </View>
+            <View style={styles.typeRow}>
+              <TouchableOpacity style={[styles.typeSelectBtn, itemType === 'food' ? styles.typeFoodActive : themeStyles.input]} onPress={() => setItemType('food')}><Text style={[styles.typeSelectText, itemType === 'food' ? styles.typeTextActive : themeStyles.text]}>🍲 Food</Text></TouchableOpacity>
+              <TouchableOpacity style={[styles.typeSelectBtn, itemType === 'drink' ? styles.typeDrinkActive : themeStyles.input]} onPress={() => setItemType('drink')}><Text style={[styles.typeSelectText, itemType === 'drink' ? styles.typeTextActive : themeStyles.text]}>🍺 Drink</Text></TouchableOpacity>
+              <TouchableOpacity style={[styles.addBtn, editingId ? styles.updateBtn : themeStyles.primaryBtn]} onPress={addOrUpdateItem}><Text style={[styles.addBtnText, themeStyles.primaryBtnText]}>{editingId ? '✓ Update' : '+ Add'}</Text></TouchableOpacity>
+            </View>
+          </View>
+        </>
       )}
 
-      <Text style={styles.sectionDivider}>OR ADD MANUALLY</Text>
-
-      <View style={styles.manualEntryContainer}>
-        <View style={styles.inputRow}>
-          <TextInput style={[styles.input, themeStyles.input, {flex: 3}]} placeholder="Item Name" value={itemName} onChangeText={setItemName} placeholderTextColor={isDarkMode?'#9CA3AF':'#6B7280'} />
-          <TextInput style={[styles.input, themeStyles.input, {flex: 1.2}]} placeholder="Qty" keyboardType="numeric" value={quantity} onChangeText={setQuantity} placeholderTextColor={isDarkMode?'#9CA3AF':'#6B7280'} />
-          <TextInput style={[styles.input, themeStyles.input, {flex: 2}]} placeholder="Total Amt" keyboardType="numeric" value={amount} onChangeText={setAmount} placeholderTextColor={isDarkMode?'#9CA3AF':'#6B7280'} />
-        </View>
-        <View style={styles.typeRow}>
-          <TouchableOpacity style={[styles.typeSelectBtn, itemType === 'food' ? styles.typeFoodActive : themeStyles.input]} onPress={() => setItemType('food')}><Text style={[styles.typeSelectText, itemType === 'food' ? styles.typeTextActive : themeStyles.text]}>🍲 Food</Text></TouchableOpacity>
-          <TouchableOpacity style={[styles.typeSelectBtn, itemType === 'drink' ? styles.typeDrinkActive : themeStyles.input]} onPress={() => setItemType('drink')}><Text style={[styles.typeSelectText, itemType === 'drink' ? styles.typeTextActive : themeStyles.text]}>🍺 Drink</Text></TouchableOpacity>
-          <TouchableOpacity style={[styles.addBtn, editingId ? styles.updateBtn : themeStyles.primaryBtn]} onPress={addOrUpdateItem}><Text style={[styles.addBtnText, themeStyles.primaryBtnText]}>{editingId ? '✓ Update' : '+ Add'}</Text></TouchableOpacity>
-        </View>
-      </View>
-
+      {/* Everyone sees the item list, but actions are restricted inside */}
       <FlatList data={items} contentContainerStyle={{paddingBottom: 20}} keyExtractor={(item) => item.id} renderItem={({ item }) => {
           const totalAssignedDrinks = Object.values(item.drinkCounts || {}).reduce((a, b) => a + b, 0);
           return (
@@ -178,10 +185,13 @@ export const AddItemsScreen = ({ eventData, profile, isDarkMode, onSaveItems }) 
                 )}
               </View>
               
-              <View style={[styles.itemFooter, themeStyles.divider]}>
-                <TouchableOpacity onPress={() => editItem(item)} style={styles.actionBtn}><Text style={styles.editText}>✏️ Edit Item</Text></TouchableOpacity>
-                <TouchableOpacity onPress={() => deleteItem(item.id)} style={styles.actionBtn}><Text style={styles.deleteText}>🗑️ Delete</Text></TouchableOpacity>
-              </View>
+              {/* HOST ONLY: Only the Host can edit or delete items */}
+              {isHost && (
+                <View style={[styles.itemFooter, themeStyles.divider]}>
+                  <TouchableOpacity onPress={() => editItem(item)} style={styles.actionBtn}><Text style={styles.editText}>✏️ Edit Item</Text></TouchableOpacity>
+                  <TouchableOpacity onPress={() => deleteItem(item.id)} style={styles.actionBtn}><Text style={styles.deleteText}>🗑️ Delete</Text></TouchableOpacity>
+                </View>
+              )}
             </View>
           )
         }}

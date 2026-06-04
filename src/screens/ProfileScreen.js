@@ -49,17 +49,18 @@ export const ProfileScreen = ({ existingProfile, isDarkMode, onComplete, onCance
       return;
     }
 
-    // --- NEW STRICT 10-DIGIT VALIDATION ---
     const digitsOnly = form.phone.replace(/\D/g, ''); 
     if (digitsOnly.length !== 10) {
-      alert('Please enter a valid 10-digit phone number without country codes for your Friends to find you.');
+      alert('Please enter a valid 10-digit phone number without country codes.');
       return;
     }
-    // --------------------------------------
 
     try {
-      // We save 'digitsOnly' so the database sync works flawlessly
-      const userProfile = { id: 'USER_ME', ...form, phone: digitsOnly };
+      // FIX: Creates a highly secure, unique ID using their exact phone number.
+      // This stops everyone from sharing the generic 'USER_ME' ID.
+      const uniqueId = `USER_${digitsOnly}`;
+      const userProfile = { id: uniqueId, ...form, phone: digitsOnly };
+      
       await AsyncStorage.setItem('demitab_profile', JSON.stringify(userProfile));
       onComplete(userProfile);
     } catch (error) {

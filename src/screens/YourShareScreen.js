@@ -90,13 +90,14 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
     const newSettlements = { ...settlements, [settleModal.member.id]: { amount: settleModal.member.roundedTotal, method: settleMethod, paidBy: settleMethod === 'OTHER' ? paidById : settleModal.member.id } };
     onUpdateData({ settlements: newSettlements });
     
-    // FIX: Only trigger the notification if a non-host member is settling their own bill
-    // (This alerts the host without spamming the host with notifications about their own actions)
     if (expoPushToken && !isHost) {
       sendPushNotification(expoPushToken, "Payment Settled 💸", `${profile?.name ? profile.name.split(' ')[0] : 'Someone'} paid their share of ₹${settleModal.member.roundedTotal}!`);
     }
 
     setSettleModal({ visible: false, member: null });
+
+    // NEW FIX: Success pop-up added here
+    Alert.alert("Success", "Thank you for Settling the Bill");
   };
 
   const handleUndoSettlement = (memberId) => {
@@ -171,6 +172,7 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
         {memberShares.map(member => {
           const isMainPayer = paymentStrategy === 'one_person' && member.id === mainPayerId;
           const isSettled = !!settlements[member.id];
+          // Restricts Edit/Settle features perfectly
           const canEdit = isHost || profile?.id === member.id; 
           
           return (

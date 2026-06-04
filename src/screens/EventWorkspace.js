@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
-import { doc, setDoc, onSnapshot } from 'firebase/firestore';
+
+// FIX: Added 'getDocs', 'collection', 'query', and 'where' to read users' tokens from DB
+import { doc, setDoc, onSnapshot, getDocs, collection, query, where } from 'firebase/firestore';
 import { db } from '../services/firebase';
+import { sendPushNotification } from '../services/notifications';
 
 import { AddMembersScreen } from './AddMembersScreen';
 import { AddItemsScreen } from './AddItemsScreen';
@@ -15,15 +18,15 @@ export const EventWorkspace = ({ activeEvent, profile, isDarkMode, toggleTheme, 
     id: activeEvent?.id || Date.now().toString(),
     eventName: activeEvent?.eventName || 'New Event',
     eventDate: activeEvent?.eventDate || new Date().toLocaleDateString('en-GB'),
-    hostId: activeEvent?.hostId || profile?.id || 'USER_ME', 
-    memberIds: activeEvent?.memberIds || [profile?.id || 'USER_ME'], 
-    memberPhones: activeEvent?.memberPhones || [], // FIX: Added to support phone-based fetching
+    hostId: activeEvent?.hostId || profile?.id, 
+    memberIds: activeEvent?.memberIds || [profile?.id].filter(Boolean), 
+    memberPhones: activeEvent?.memberPhones || [], 
     members: activeEvent?.members || [], 
     items: activeEvent?.items || [], 
     taxes: activeEvent?.taxes || {}, 
     actualTotal: activeEvent?.actualTotal || 0,
     paymentStrategy: activeEvent?.paymentStrategy || 'everyone', 
-    mainPayerId: activeEvent?.mainPayerId || profile?.id || 'USER_ME', 
+    mainPayerId: activeEvent?.mainPayerId || profile?.id, 
     settlements: activeEvent?.settlements || {}, 
     ledgerData: activeEvent?.ledgerData || null
   });
@@ -56,15 +59,51 @@ export const EventWorkspace = ({ activeEvent, profile, isDarkMode, toggleTheme, 
   const renderContent = () => {
     switch (activeTab) {
       case 'GROUP':
-        return <AddMembersScreen eventData={eventData} profile={profile} isDarkMode={isDarkMode} onSaveMembers={(members) => {
-          const userAsMember = { id: profile?.id || 'USER_ME', name: profile?.name?.split(' ')[0] || 'You', phone: profile?.phone };
+        return <AddMembersScreen eventData={eventData} profile={profile} isDarkMode={isDarkMode} onSaveMembers={async (members) => {
+          const userAsMember = { id: profile?.id, name: profile?.name?.split(' ')[0] || 'You', phone: profile?.phone };
           const finalMembers = members.some(m => m.id === userAsMember.id) ? members : [userAsMember, ...members];
           
-          const memberIds = finalMembers.map(m => m.id);
-          // FIX: Strip country codes and save a clean list of 10-digit numbers to the cloud for fetching
+          const memberIds = finalMembers.map(m => m.id).filter(Boolean);
           const memberPhones = finalMembers.map(m => m.phone ? m.phone.replace(/\D/g, '').slice(-10) : '').filter(Boolean);
           
+          // Identify who is brand new to trigger the push notification
+          const existingPhones = (eventData.members || []).map(m => m.phone ? m.phone.replace(/\D/g, '').slice(-10) : '');
+          const newlyAdded = finalMembers.filter(m => {
+            const mPhone = m.phone ? m.phone.replace(/\D/g, '').slice(-10) : '';
+            return mPhone && !existingPhones.includes(mPhone) && m.id !== profile?.id;
+          });
+
+          // Save the group to the cloud immediately
           pushToCloud({ members: finalMembers, memberIds, memberPhones, mainPayerId: finalMembers[0].id });
+
+          // NEW FIX: Fire push notifications to the new members
+          if (newlyAdded.length > 0) {
+            const hostName = profile?.name ? profile.name.split(' ')[0] : 'The Host';
+            const eventName = eventData.eventName || 'an event';
+
+            try {
+              for (const member of newlyAdded) {
+                const phone10 = member.phone.replace(/\D/g, '').slice(-10);
+                // Look up the guest in the Users database to find their specific Push Token
+                const usersQuery = query(collection(db, 'users'), where('phone', '==', phone10));
+                const usersSnap = await getDocs(usersQuery);
+                
+                usersSnap.forEach(docSnap => {
+                   const userData = docSnap.data();
+                   if (userData.expoPushToken) {
+                      sendPushNotification(
+                        userData.expoPushToken,
+                        "Added to Event! 🍽️",
+                        `${hostName} added you to an event (${eventName}). Open the app to view.`
+                      );
+                   }
+                });
+              }
+            } catch (err) {
+              console.log("Could not fetch push tokens", err);
+            }
+          }
+
           setActiveTab('SPLIT BILL');
         }}/>;
       case 'SPLIT BILL':

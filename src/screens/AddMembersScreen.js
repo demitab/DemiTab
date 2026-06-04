@@ -5,7 +5,6 @@ import * as Haptics from 'expo-haptics';
 import QRCode from 'react-native-qrcode-svg';
 import { PulseButton } from '../components/PulseButton';
 
-// FIX: Fetch frequent contacts directly from Cloud to replace dead local storage
 import { collection, query, where, getDocs, or } from 'firebase/firestore';
 import { db } from '../services/firebase';
 
@@ -36,7 +35,6 @@ export const AddMembersScreen = ({ eventData, profile, isDarkMode, onSaveMembers
   const isHost = profile?.id === eventData.hostId || eventData.hostId === 'USER_ME';
   const themeStyles = isDarkMode ? darkTheme : lightTheme;
 
-  // FIX: Read frequent contacts from your actual database
   useEffect(() => {
     const fetchFrequentContacts = async () => {
       try {
@@ -71,7 +69,6 @@ export const AddMembersScreen = ({ eventData, profile, isDarkMode, onSaveMembers
   }, [profile]);
 
   const handleAdd = (newMember) => {
-    // FIX: Extract exactly the last 10 digits to catch duplicates perfectly regardless of +91
     const cleanPhone = (phoneStr) => phoneStr ? phoneStr.replace(/\D/g, '').slice(-10) : null;
     const newPhone10 = cleanPhone(newMember.phone);
 
@@ -81,7 +78,10 @@ export const AddMembersScreen = ({ eventData, profile, isDarkMode, onSaveMembers
       return m.name.toLowerCase() === newMember.name.toLowerCase();
     });
 
-    if (isDuplicate) return false;
+    if (isDuplicate) {
+      // Logic handled here so we don't alert spam inside loops, but return false
+      return false;
+    }
     
     const memberToAdd = { ...newMember, id: Date.now().toString() + Math.random() };
     setMembers(prev => [memberToAdd, ...prev]);
@@ -95,8 +95,8 @@ export const AddMembersScreen = ({ eventData, profile, isDarkMode, onSaveMembers
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setName('');
     } else {
-      // FIX: Updated alert text as requested
-      Alert.alert('Duplicate Found', `Already added to the Group.`);
+      // NEW FIX: Exact duplicate pop-up for Manual Adds
+      Alert.alert('Notice', 'Already Added in the Group');
     }
   };
 
@@ -153,7 +153,11 @@ export const AddMembersScreen = ({ eventData, profile, isDarkMode, onSaveMembers
       }
     });
     setShowContacts(false);
-    if (duplicates > 0) Alert.alert('Contacts Added', `Added successfully. Skipped ${duplicates} duplicates.`);
+    
+    // NEW FIX: Exact duplicate pop-up for Phonebook Adds
+    if (duplicates > 0) {
+      Alert.alert('Notice', 'Already Added in the Group');
+    }
   };
 
   const secureEventId = eventData.id || "TEMP_" + Date.now().toString();
@@ -178,7 +182,8 @@ export const AddMembersScreen = ({ eventData, profile, isDarkMode, onSaveMembers
             {frequentContacts.map((contact, index) => (
               <TouchableOpacity key={index} style={[styles.quickContactPill, themeStyles.pill]} onPress={() => {
                 const added = handleAdd(contact);
-                if (!added) Alert.alert('Duplicate Found', `Already added to the Group.`);
+                // NEW FIX: Exact duplicate pop-up for Quick Adds
+                if (!added) Alert.alert('Notice', 'Already Added in the Group');
               }}>
                 <Text style={[styles.quickContactText, themeStyles.pillText]}>{contact.name.split(' ')[0]}</Text>
                 <Text style={[styles.plusIcon, themeStyles.pillText]}>+</Text>
