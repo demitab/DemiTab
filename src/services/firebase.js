@@ -1,6 +1,6 @@
+import { getFirestore, doc, setDoc, onSnapshot, collection, query, where, updateDoc, arrayUnion } from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
 import { getAuth, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
 
 // ⚠️ REPLACE THIS OBJECT WITH YOUR ACTUAL FIREBASE KEYS
 const firebaseConfig = {

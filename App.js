@@ -2,8 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, StatusBar, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-import { auth, onAuthStateChanged } from './src/services/firebase'; 
-import { AuthScreen } from './src/screens/AuthScreen';             
+// NEW: Firestore Imports
+import { doc, setDoc } from 'firebase/firestore'; 
+import { auth, db, onAuthStateChanged } from './src/services/firebase'; 
+
+import { AuthScreen } from './src/screens/AuthScreen';
 import { ProfileScreen } from './src/screens/ProfileScreen';
 import { DashboardScreen } from './src/screens/DashboardScreen';
 import { EventWorkspace } from './src/screens/EventWorkspace';
@@ -11,14 +14,13 @@ import { EventWorkspace } from './src/screens/EventWorkspace';
 const DEV_BYPASS_AUTH = true; 
 
 export default function App() {
-  const [firebaseUser, setFirebaseUser] = useState(null); 
-  const [profile, setProfile] = useState(null);           
+  const [firebaseUser, setFirebaseUser] = useState(null);
+  const [profile, setProfile] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSplash, setIsSplash] = useState(true);
   const [currentView, setCurrentView] = useState('Dashboard');
   
-  // NEW: Store the full active event instead of just the name
-  const [activeEvent, setActiveEvent] = useState(null); 
+  const [activeEvent, setActiveEvent] = useState(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
 
   useEffect(() => {
@@ -32,7 +34,7 @@ export default function App() {
         if (savedProfile) setProfile(JSON.parse(savedProfile));
         const savedTheme = await AsyncStorage.getItem('demitab_theme');
         if (savedTheme === 'dark') setIsDarkMode(true);
-      } catch (e) { console.error(e); } 
+      } catch (e) { console.error(e); }
       finally {
         setIsLoading(false);
         setTimeout(() => setIsSplash(false), 2000);
@@ -40,7 +42,7 @@ export default function App() {
     };
     bootApp();
 
-    return unsubscribe; 
+    return unsubscribe;
   }, []);
 
   const toggleTheme = async () => {
@@ -54,7 +56,7 @@ export default function App() {
       <View style={styles.splashContainer}>
         <StatusBar hidden={true} translucent={true} />
         <View style={styles.logoBox}><Text style={styles.logoText}>DemiTab</Text></View>
-        <Text style={styles.tagline}>Split bills, stay friends.</Text>
+        <Text style={styles.tagline}>Split Bills, Stay Friends.</Text>
         {isLoading && <ActivityIndicator size="small" color="#5BC5A7" style={{marginTop: 20}} />}
       </View>
     );
@@ -64,8 +66,8 @@ export default function App() {
 
   return (
     <View style={[styles.container, { backgroundColor: safeAreaBg }]}>
-      <StatusBar hidden={true} translucent={true} /> 
-      
+      <StatusBar hidden={true} translucent={true} />
+
       {(!firebaseUser && !DEV_BYPASS_AUTH) ? (
         <AuthScreen isDarkMode={isDarkMode} />
       ) : !profile ? (
@@ -73,42 +75,48 @@ export default function App() {
       ) : currentView === 'EditProfile' ? (
         <ProfileScreen existingProfile={profile} isDarkMode={isDarkMode} onComplete={(p) => { setProfile(p); setCurrentView('Dashboard'); }} onCancel={() => setCurrentView('Dashboard')} />
       ) : currentView === 'Dashboard' ? (
-        <DashboardScreen 
-          profile={profile} 
-          isDarkMode={isDarkMode} 
-          toggleTheme={toggleTheme} 
-          onEditProfile={() => setCurrentView('EditProfile')} 
-          onCreateEvent={async (name) => { 
-            // Creates the master object immediately and saves it!
+        <DashboardScreen
+          profile={profile}
+          isDarkMode={isDarkMode}
+          toggleTheme={toggleTheme}
+          onEditProfile={() => setCurrentView('EditProfile')}
+          onCreateEvent={async (name) => {
+            // NEW: FIREBASE CLOUD CREATION
+            const newEventId = Date.now().toString();
+            const hostId = profile?.id || 'USER_ME';
+            
             const newEvent = {
-              id: Date.now().toString(),
+              id: newEventId,
               eventName: name,
               eventDate: new Date().toLocaleDateString('en-GB'),
-              hostId: profile.id || 'USER_ME',
-              members: [{ id: profile.id || 'USER_ME', name: profile.name.split(' ')[0] }],
+              hostId: hostId,
+              memberIds: [hostId], // The flat array for fast Firebase querying
+              members: [{ id: hostId, name: profile?.name ? profile.name.split(' ')[0] : 'Me' }],
               items: [], taxes: {}, actualTotal: 0,
-              paymentStrategy: 'everyone', mainPayerId: profile.id || 'USER_ME', settlements: {}
+              paymentStrategy: 'everyone', mainPayerId: hostId, settlements: {}
             };
-            
-            const stored = await AsyncStorage.getItem('demitab_events');
-            const pastEvents = stored ? JSON.parse(stored) : [];
-            await AsyncStorage.setItem('demitab_events', JSON.stringify([newEvent, ...pastEvents]));
-            
-            setActiveEvent(newEvent); 
-            setCurrentView('EventWorkspace'); 
-          }} 
+
+            try {
+              // Create document in Firestore
+              await setDoc(doc(db, 'events', newEventId), newEvent);
+              setActiveEvent(newEvent);
+              setCurrentView('EventWorkspace');
+            } catch (error) {
+              console.error("Error creating event in cloud", error);
+            }
+          }}
           onOpenEvent={(evt) => {
             setActiveEvent(evt);
             setCurrentView('EventWorkspace');
           }}
         />
       ) : currentView === 'EventWorkspace' ? (
-        <EventWorkspace 
-          activeEvent={activeEvent} 
-          profile={profile} 
-          isDarkMode={isDarkMode} 
-          toggleTheme={toggleTheme} 
-          onExit={() => setCurrentView('Dashboard')} 
+        <EventWorkspace
+          activeEvent={activeEvent}
+          profile={profile}
+          isDarkMode={isDarkMode}
+          toggleTheme={toggleTheme}
+          onExit={() => setCurrentView('Dashboard')}
         />
       ) : null}
     </View>

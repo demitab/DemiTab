@@ -1,6 +1,5 @@
 import React, { useState, useRef } from 'react';
 import { View, Text, TextInput, StyleSheet, TouchableOpacity, KeyboardAvoidingView, Platform, Alert } from 'react-native';
-import { FirebaseRecaptchaVerifierModal } from 'expo-firebase-recaptcha';
 import { PulseButton } from '../components/PulseButton';
 import { auth, firebaseConfig, PhoneAuthProvider, signInWithCredential } from '../services/firebase';
 
@@ -59,12 +58,6 @@ export const AuthScreen = ({ isDarkMode }) => {
   return (
     <KeyboardAvoidingView style={[styles.container, themeStyles.background]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       
-      <FirebaseRecaptchaVerifierModal
-        ref={recaptchaVerifier}
-        firebaseConfig={firebaseConfig}
-        attemptInvisibleVerification={false} 
-      />
-
       <View style={[styles.card, themeStyles.card]}>
         <View style={styles.logoBox}>
           <Text style={styles.logoText}>DemiTab</Text>

@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../services/firebase';
 
@@ -17,6 +16,8 @@ export const EventWorkspace = ({ activeEvent, profile, isDarkMode, toggleTheme, 
     eventName: activeEvent?.eventName || 'New Event',
     eventDate: activeEvent?.eventDate || new Date().toLocaleDateString('en-GB'),
     hostId: activeEvent?.hostId || profile?.id || 'USER_ME', 
+    memberIds: activeEvent?.memberIds || [profile?.id || 'USER_ME'], 
+    memberPhones: activeEvent?.memberPhones || [], // FIX: Added to support phone-based fetching
     members: activeEvent?.members || [], 
     items: activeEvent?.items || [], 
     taxes: activeEvent?.taxes || {}, 
@@ -30,32 +31,20 @@ export const EventWorkspace = ({ activeEvent, profile, isDarkMode, toggleTheme, 
   const tabs = ['GROUP', 'SPLIT BILL', 'SUMMARY', 'YOUR SHARE', 'LEDGER'];
   const themeStyles = isDarkMode ? darkTheme : lightTheme;
 
-  // ☁️ ENGINE 1: The Cloud Auto-Saver (Pushes to Firestore)
-  useEffect(() => {
-    const saveChanges = async () => {
-      try {
-        const stored = await AsyncStorage.getItem('demitab_events');
-        let pastEvents = stored ? JSON.parse(stored) : [];
-        const index = pastEvents.findIndex(e => e.id === eventData.id);
-        
-        if (index > -1) pastEvents[index] = eventData;
-        else pastEvents = [eventData, ...pastEvents];
+  const pushToCloud = async (updates) => {
+    const updatedEvent = { ...eventData, ...updates };
+    setEventData(updatedEvent); 
+    try {
+      await setDoc(doc(db, 'events', updatedEvent.id), updatedEvent);
+    } catch (e) {
+      console.error('Cloud save failed', e);
+    }
+  };
 
-        await AsyncStorage.setItem('demitab_events', JSON.stringify(pastEvents));
-
-        // Push live copy to Firebase!
-        await setDoc(doc(db, 'events', eventData.id), eventData);
-      } catch (e) { console.error('Cloud auto-save failed', e); }
-    };
-    saveChanges();
-  }, [eventData]);
-
-  // ☁️ ENGINE 2: The Multiplayer Listener (Pulls from Firestore)
   useEffect(() => {
     const unsubscribe = onSnapshot(doc(db, 'events', eventData.id), (docSnap) => {
       if (docSnap.exists()) {
         const cloudData = docSnap.data();
-        // Prevent infinite loops: only update if data actually changed
         if (JSON.stringify(cloudData) !== JSON.stringify(eventData)) {
           setEventData(cloudData);
         }
@@ -68,24 +57,22 @@ export const EventWorkspace = ({ activeEvent, profile, isDarkMode, toggleTheme, 
     switch (activeTab) {
       case 'GROUP':
         return <AddMembersScreen eventData={eventData} profile={profile} isDarkMode={isDarkMode} onSaveMembers={(members) => {
-          const userAsMember = { id: profile?.id || 'USER_ME', name: profile?.name?.split(' ')[0] || 'You' };
+          const userAsMember = { id: profile?.id || 'USER_ME', name: profile?.name?.split(' ')[0] || 'You', phone: profile?.phone };
           const finalMembers = members.some(m => m.id === userAsMember.id) ? members : [userAsMember, ...members];
-          setEventData({ ...eventData, members: finalMembers, mainPayerId: finalMembers[0].id });
+          
+          const memberIds = finalMembers.map(m => m.id);
+          // FIX: Strip country codes and save a clean list of 10-digit numbers to the cloud for fetching
+          const memberPhones = finalMembers.map(m => m.phone ? m.phone.replace(/\D/g, '').slice(-10) : '').filter(Boolean);
+          
+          pushToCloud({ members: finalMembers, memberIds, memberPhones, mainPayerId: finalMembers[0].id });
           setActiveTab('SPLIT BILL');
         }}/>;
       case 'SPLIT BILL':
-        return <AddItemsScreen eventData={eventData} profile={profile} isDarkMode={isDarkMode} onSaveItems={(items) => {
-          setEventData({ ...eventData, items }); setActiveTab('SUMMARY');
-        }}/>;
+        return <AddItemsScreen eventData={eventData} profile={profile} isDarkMode={isDarkMode} onSaveItems={(items) => { pushToCloud({ items }); setActiveTab('SUMMARY'); }}/>;
       case 'SUMMARY':
-        return <SummaryScreen eventData={eventData} isDarkMode={isDarkMode} onFinish={(taxData) => {
-          setEventData({ ...eventData, taxes: taxData, actualTotal: taxData.actualTotal }); setActiveTab('YOUR SHARE');
-        }}/>;
+        return <SummaryScreen eventData={eventData} isDarkMode={isDarkMode} onFinish={(taxData) => { pushToCloud({ taxes: taxData, actualTotal: taxData.actualTotal }); setActiveTab('YOUR SHARE'); }}/>;
       case 'YOUR SHARE':
-        return <YourShareScreen eventData={eventData} profile={profile} isDarkMode={isDarkMode} 
-          onUpdateData={(updates) => setEventData({ ...eventData, ...updates })} 
-          onNext={(ledgerData) => { setEventData({ ...eventData, ledgerData }); setActiveTab('LEDGER'); }} 
-        />;
+        return <YourShareScreen eventData={eventData} profile={profile} isDarkMode={isDarkMode} onUpdateData={(updates) => pushToCloud(updates)} onNext={(ledgerData) => { pushToCloud({ ledgerData }); setActiveTab('LEDGER'); }} />;
       case 'LEDGER':
         return <LedgerScreen eventData={eventData} isDarkMode={isDarkMode} onExit={onExit} />;
       default: return null;

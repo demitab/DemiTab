@@ -48,8 +48,18 @@ export const ProfileScreen = ({ existingProfile, isDarkMode, onComplete, onCance
       alert('Please enter your Name, Email ID, and Phone Number.');
       return;
     }
+
+    // --- NEW STRICT 10-DIGIT VALIDATION ---
+    const digitsOnly = form.phone.replace(/\D/g, ''); 
+    if (digitsOnly.length !== 10) {
+      alert('Please enter a valid 10-digit phone number without country codes for your Friends to find you.');
+      return;
+    }
+    // --------------------------------------
+
     try {
-      const userProfile = { id: 'USER_ME', ...form };
+      // We save 'digitsOnly' so the database sync works flawlessly
+      const userProfile = { id: 'USER_ME', ...form, phone: digitsOnly };
       await AsyncStorage.setItem('demitab_profile', JSON.stringify(userProfile));
       onComplete(userProfile);
     } catch (error) {
@@ -72,7 +82,7 @@ export const ProfileScreen = ({ existingProfile, isDarkMode, onComplete, onCance
         <TextInput style={[styles.input, themeStyles.input]} keyboardType="email-address" autoCapitalize="none" placeholder="e.g. name@example.com" placeholderTextColor={isDarkMode ? '#9CA3AF' : '#6B7280'} value={form.email} onChangeText={(v) => setForm({ ...form, email: v })} />
 
         <Text style={styles.label}>Phone Number *</Text>
-        <TextInput style={[styles.input, themeStyles.input]} keyboardType="phone-pad" placeholder="e.g. +91 98765 43210" placeholderTextColor={isDarkMode ? '#9CA3AF' : '#6B7280'} value={form.phone} onChangeText={(v) => setForm({ ...form, phone: v })} />
+        <TextInput style={[styles.input, themeStyles.input]} keyboardType="phone-pad" placeholder="e.g. 9876543210" placeholderTextColor={isDarkMode ? '#9CA3AF' : '#6B7280'} value={form.phone} onChangeText={(v) => setForm({ ...form, phone: v })} maxLength={15} />
 
         <View style={styles.row}>
           <View style={styles.flex1}>

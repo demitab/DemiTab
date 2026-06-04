@@ -1,84 +1,404 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, Alert, TextInput } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, Alert, TextInput } from 'react-native';
+import * as Haptics from 'expo-haptics';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import { PulseButton } from '../components/PulseButton';
+import { ProfileScreen } from './ProfileScreen';
 
-export const DashboardScreen = ({ profile, onEditProfile, onCreateEvent, onOpenEvent, isDarkMode, toggleTheme }) => {
-  const [eventName, setEventName] = useState('');
-  const [history, setHistory] = useState([]);
+import { collection, query, where, onSnapshot, doc, updateDoc, arrayUnion, or, deleteDoc, arrayRemove } from 'firebase/firestore';
+import { db } from '../services/firebase';
+
+export const DashboardScreen = ({ profile, isDarkMode, toggleTheme, onOpenEvent, onCreateEvent }) => {
+  const [events, setEvents] = useState([]);
+  const [newEventName, setNewEventName] = useState('');
+  const themeStyles = isDarkMode ? darkTheme : lightTheme;
+  
+  const [isScanning, setIsScanning] = useState(false);
+  const [permission, requestPermission] = useCameraPermissions();
+
+  const [showFullProfile, setShowFullProfile] = useState(false);
+  const [localName, setLocalName] = useState(profile?.name || '');
 
   useEffect(() => {
-    const fetchHistory = async () => {
+    if (!profile?.id) return;
+
+    let q;
+    if (profile.phone) {
+      const myPhone10 = profile.phone.replace(/\D/g, '').slice(-10);
+      q = query(
+        collection(db, 'events'), 
+        or(
+          where('memberIds', 'array-contains', profile.id),
+          where('memberPhones', 'array-contains', myPhone10)
+        )
+      );
+    } else {
+      q = query(collection(db, 'events'), where('memberIds', 'array-contains', profile.id));
+    }
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const liveEvents = [];
+      snapshot.forEach((docSnap) => {
+        liveEvents.push({ id: docSnap.id, ...docSnap.data() });
+      });
+      
+      liveEvents.sort((a, b) => b.id.localeCompare(a.id));
+      setEvents(liveEvents);
+    }, (error) => {
+      console.error("Firebase Listener Error:", error);
+    });
+
+    return () => unsubscribe();
+  }, [profile?.id, profile?.phone]);
+
+  const openScanner = async () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    if (!permission?.granted) {
+      const { status } = await requestPermission();
+      if (status !== 'granted') {
+        Alert.alert('Camera Required', 'DemiTab needs camera access to scan QR codes.');
+        return;
+      }
+    }
+    setIsScanning(true);
+  };
+
+  const handleBarCodeScanned = async ({ type, data }) => {
+    setIsScanning(false);
+    if (data.startsWith('demitab:event:')) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      const eventId = data.replace('demitab:event:', '');
+      const eventRef = doc(db, 'events', eventId);
+
       try {
-        const stored = await AsyncStorage.getItem('demitab_events');
-        if (stored) setHistory(JSON.parse(stored));
-      } catch(e) { console.error(e); }
-    };
-    fetchHistory();
-  }, []);
-
-  const deleteEvent = (id) => {
-    Alert.alert('Delete Event', 'Are you sure you want to delete this past event?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: async () => {
-          const newHistory = history.filter(h => h.id !== id);
-          setHistory(newHistory);
-          await AsyncStorage.setItem('demitab_events', JSON.stringify(newHistory));
-      }}
-    ]);
+        const myPhone10 = profile?.phone ? profile.phone.replace(/\D/g, '').slice(-10) : '';
+        await updateDoc(eventRef, {
+          memberIds: arrayUnion(profile.id),
+          memberPhones: myPhone10 ? arrayUnion(myPhone10) : arrayUnion(),
+          members: arrayUnion({ id: profile.id, name: localName || 'Friend', phone: profile?.phone || '' })
+        });
+        Alert.alert("Success!", "You have joined the live event.");
+      } catch (error) {
+        Alert.alert("Error", "Could not join the cloud event.");
+      }
+    } else {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert("Invalid QR", "Please scan a valid DemiTab Event QR.");
+    }
   };
 
-  const handleCreate = () => {
-    if (!eventName.trim()) return Alert.alert('Missing Name', 'Please enter an event name before creating.');
-    onCreateEvent(eventName.trim()); setEventName('');
+  const handleCreateEvent = async () => {
+    // NEW FIX: Prevent creating empty events
+    if (!newEventName.trim()) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+      Alert.alert("Name Required", "Please add the name of the event first.");
+      return;
+    }
+
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    const finalName = newEventName.trim();
+    if (onCreateEvent) onCreateEvent(finalName);
+    else onOpenEvent(null);
+    setNewEventName('');
   };
 
-  const themeStyles = isDarkMode ? darkTheme : lightTheme;
+  const handleDeleteEvent = (event) => {
+    Alert.alert(
+      "Remove Event?",
+      "Are you sure you want to remove this event from your dashboard?",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Remove", 
+          style: "destructive", 
+          onPress: async () => {
+            try {
+              if (event.hostId === profile?.id) {
+                await deleteDoc(doc(db, 'events', event.id));
+              } else {
+                const myPhone10 = profile?.phone ? profile.phone.replace(/\D/g, '').slice(-10) : '';
+                await updateDoc(doc(db, 'events', event.id), {
+                  memberIds: arrayRemove(profile.id),
+                  memberPhones: arrayRemove(myPhone10)
+                });
+              }
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            } catch (e) {
+              Alert.alert("Error", "Could not remove event.");
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  if (showFullProfile) {
+    return (
+      <ProfileScreen 
+        existingProfile={profile} 
+        isDarkMode={isDarkMode} 
+        onComplete={(updatedProfile) => { setLocalName(updatedProfile.name); setShowFullProfile(false); }}
+        onCancel={() => setShowFullProfile(false)}
+      />
+    );
+  }
 
   return (
     <View style={[styles.container, themeStyles.background]}>
-      <View style={styles.headerRow}>
-        <Text style={[styles.headerTitle, themeStyles.text]}>Dashboard</Text>
-        <TouchableOpacity style={[styles.themeToggle, themeStyles.input]} onPress={toggleTheme}>
-          <Text style={[styles.themeText, themeStyles.text]}>{isDarkMode ? '☀️ Light' : '🌙 Dark'}</Text>
+      <View style={[styles.header, themeStyles.card]}>
+        <View style={styles.headerLeft}>
+          <Text style={[styles.greeting, themeStyles.text]}>Hello, {localName ? localName.split(' ')[0] : 'User'} 👋</Text>
+          <TouchableOpacity style={styles.profileBtn} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setShowFullProfile(true); }}>
+            <Text style={[styles.subText, themeStyles.subText]}>Profile & Settings ⚙️</Text>
+          </TouchableOpacity>
+        </View>
+        <TouchableOpacity style={styles.themeToggle} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); toggleTheme(); }}>
+          <Text style={{ fontSize: 24 }}>{isDarkMode ? '☀️' : '🌙'}</Text>
         </TouchableOpacity>
       </View>
 
-      <View style={[styles.profileCard, themeStyles.card]}>
-        <View style={styles.profileInfo}>
-          <Text style={[styles.profileName, themeStyles.text]}>{profile.name}</Text>
-          <Text style={[styles.profileEmail, themeStyles.subText]}>{profile.email || 'No email added'}</Text>
-        </View>
-        <TouchableOpacity style={[styles.editBtn, themeStyles.input]} onPress={onEditProfile}><Text style={[styles.editBtnText, themeStyles.text]}>Edit</Text></TouchableOpacity>
-      </View>
-
-      <View style={styles.createSection}>
-        <TextInput style={[styles.eventInput, themeStyles.input]} placeholder="Enter Event Name (e.g. Saturday Dinner)" placeholderTextColor={isDarkMode ? '#9CA3AF' : '#6B7280'} value={eventName} onChangeText={setEventName} />
-        <PulseButton style={styles.createBtn} onPress={handleCreate}><Text style={styles.createBtnText}>Create Event</Text></PulseButton>
-      </View>
-
-      <Text style={[styles.sectionTitle, themeStyles.text]}>Event History</Text>
       <FlatList
-        data={history}
+        data={events}
         keyExtractor={(item) => item.id}
-        ListEmptyComponent={<Text style={themeStyles.subText}>No past events saved yet.</Text>}
-        renderItem={({ item }) => (
-          // NEW: The entire row is now clickable to open the event
-          <TouchableOpacity style={[styles.historyRow, themeStyles.card]} onPress={() => onOpenEvent(item)} activeOpacity={0.7}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.historyName, themeStyles.text]}>{item.eventName}</Text>
-              <Text style={[styles.historyDate, themeStyles.subText]}>{item.eventDate} • {item.members?.length || 1} Members</Text>
-            </View>
-            <TouchableOpacity onPress={() => deleteEvent(item.id)} style={styles.deleteBtnContainer}>
-              <Text style={styles.deleteIcon}>🗑️</Text>
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
+        ListHeaderComponent={
+          <View style={styles.topLayoutGroup}>
+            <TextInput 
+              style={[styles.input, themeStyles.card, themeStyles.text]}
+              placeholder="Enter New Event Name..."
+              placeholderTextColor={isDarkMode ? '#9CA3AF' : '#6B7280'}
+              value={newEventName}
+              onChangeText={setNewEventName}
+            />
+            <PulseButton style={styles.createBtn} onPress={handleCreateEvent}>
+              <Text style={styles.createText}>+ Add Event</Text>
+            </PulseButton>
+            <TouchableOpacity style={[styles.scanJoinBtn, themeStyles.card]} onPress={openScanner}>
+              <Text style={[styles.scanJoinText, themeStyles.text]}>📷 Scan QR to Join Event</Text>
             </TouchableOpacity>
+            
+            <View style={styles.divider} />
+            
+            <View style={styles.pastEventsHeader}>
+              <Text style={[styles.sectionTitle, themeStyles.text]}>Past Events</Text>
+              <Text style={[styles.longPressHint, themeStyles.subText]}>(Hold an event to delete)</Text>
+            </View>
+          </View>
+        }
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Text style={{ fontSize: 60, marginBottom: 20 }}>🍽️</Text>
+            <Text style={[styles.emptyText, themeStyles.text]}>No events yet.</Text>
+            <Text style={themeStyles.subText}>Your recent bills will appear here.</Text>
+          </View>
+        }
+        renderItem={({ item }) => (
+          <TouchableOpacity 
+            style={[styles.eventCard, themeStyles.card]} 
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); onOpenEvent(item); }}
+            onLongPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy); handleDeleteEvent(item); }}
+          >
+            <View style={styles.eventLeft}>
+              <Text style={[styles.eventTitle, themeStyles.text]}>{item.eventName}</Text>
+              <Text style={[styles.eventDate, themeStyles.subText]}>{item.eventDate} • {item.members?.length || 0} People</Text>
+            </View>
+            <View style={styles.eventRight}>
+              <Text style={[styles.eventTotal, themeStyles.text]}>₹{item.actualTotal || 0}</Text>
+              <Text style={styles.viewText}>View →</Text>
+            </View>
           </TouchableOpacity>
         )}
       />
+
+      <Modal visible={isScanning} animationType="slide">
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <CameraView style={{ flex: 1 }} facing="back" barcodeScannerSettings={{ barcodeTypes: ["qr"] }} onBarcodeScanned={handleBarCodeScanned} />
+          <View style={styles.scannerOverlay}>
+            <Text style={styles.scannerInstruction}>Point camera at Host's QR Code</Text>
+            <TouchableOpacity onPress={() => setIsScanning(false)} style={styles.cancelScanBtn}>
+              <Text style={styles.cancelScanText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
 
-const lightTheme = { background: { backgroundColor: '#F4F5F4' }, text: { color: '#111827' }, subText: { color: '#6B7280' }, card: { backgroundColor: '#fff', borderColor: '#E5E7EB' }, input: { backgroundColor: '#fff', borderColor: '#E5E7EB', color: '#111827' } };
-const darkTheme = { background: { backgroundColor: '#111827' }, text: { color: '#F9FAFB' }, subText: { color: '#9CA3AF' }, card: { backgroundColor: '#1F2937', borderColor: '#374151' }, input: { backgroundColor: '#374151', borderColor: '#4B5563', color: '#F9FAFB' } };
-const styles = StyleSheet.create({ container: { flex: 1, padding: 20 }, headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, marginTop: 10 }, headerTitle: { fontSize: 28, fontWeight: '900' }, themeToggle: { padding: 10, borderRadius: 20, borderWidth: 1 }, themeText: { fontSize: 12, fontWeight: 'bold' }, profileCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderRadius: 16, borderWidth: 1, marginBottom: 24 }, profileName: { fontSize: 20, fontWeight: '800' }, profileEmail: { fontSize: 14, marginTop: 4 }, editBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, borderWidth: 1 }, editBtnText: { fontWeight: '700' }, createSection: { marginBottom: 30 }, eventInput: { padding: 16, borderRadius: 12, borderWidth: 1, fontSize: 16, marginBottom: 12 }, createBtn: { backgroundColor: '#5BC5A7', padding: 20 }, createBtnText: { color: '#fff', fontWeight: '900', fontSize: 18, textAlign: 'center' }, sectionTitle: { fontSize: 18, fontWeight: '800', marginBottom: 12 }, historyRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderRadius: 12, borderWidth: 1, marginBottom: 10 }, historyName: { fontSize: 16, fontWeight: '700' }, historyDate: { fontSize: 12, marginTop: 4 }, deleteBtnContainer: { padding: 10 }, deleteIcon: { fontSize: 20 } });
+// Expanded Styles
+const lightTheme = { 
+  background: { backgroundColor: '#F9FAFB' }, 
+  text: { color: '#111827' }, 
+  subText: { color: '#6B7280' }, 
+  card: { backgroundColor: '#fff', borderColor: '#E5E7EB' } 
+};
+
+const darkTheme = { 
+  background: { backgroundColor: '#111827' }, 
+  text: { color: '#F9FAFB' }, 
+  subText: { color: '#9CA3AF' }, 
+  card: { backgroundColor: '#1F2937', borderColor: '#374151' } 
+};
+
+const styles = StyleSheet.create({ 
+  container: { 
+    flex: 1 
+  }, 
+  header: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    padding: 24, 
+    paddingTop: 60, 
+    borderBottomWidth: 1, 
+    borderBottomLeftRadius: 24, 
+    borderBottomRightRadius: 24 
+  }, 
+  headerLeft: { 
+    flex: 1 
+  }, 
+  greeting: { 
+    fontSize: 24, 
+    fontWeight: '900', 
+    marginBottom: 4 
+  }, 
+  profileBtn: { 
+    paddingVertical: 4 
+  }, 
+  themeToggle: { 
+    padding: 10, 
+    backgroundColor: 'rgba(0,0,0,0.05)', 
+    borderRadius: 20 
+  }, 
+  listContent: { 
+    paddingHorizontal: 20, 
+    paddingTop: 20, 
+    paddingBottom: 150 
+  }, 
+  topLayoutGroup: { 
+    marginBottom: 10 
+  }, 
+  input: { 
+    padding: 18, 
+    borderRadius: 16, 
+    borderWidth: 1, 
+    marginBottom: 16, 
+    fontSize: 16, 
+    fontWeight: '600' 
+  }, 
+  createBtn: { 
+    width: '100%', 
+    marginBottom: 16 
+  }, 
+  createText: { 
+    color: '#fff', 
+    fontWeight: '900', 
+    fontSize: 16 
+  }, 
+  scanJoinBtn: { 
+    width: '100%', 
+    paddingVertical: 18, 
+    borderRadius: 16, 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    borderWidth: 1, 
+    marginBottom: 24 
+  }, 
+  scanJoinText: { 
+    fontWeight: '800', 
+    fontSize: 16 
+  }, 
+  divider: { 
+    height: 1, 
+    backgroundColor: 'rgba(0,0,0,0.05)', 
+    marginBottom: 24 
+  }, 
+  pastEventsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    marginBottom: 16
+  },
+  sectionTitle: { 
+    fontSize: 20, 
+    fontWeight: '900', 
+  }, 
+  longPressHint: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 2
+  },
+  emptyContainer: { 
+    flex: 1, 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    marginTop: 40 
+  }, 
+  emptyText: { 
+    fontSize: 20, 
+    fontWeight: '800', 
+    marginBottom: 8 
+  }, 
+  eventCard: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    alignItems: 'center', 
+    padding: 20, 
+    borderRadius: 16, 
+    marginBottom: 12, 
+    borderWidth: 1 
+  }, 
+  eventLeft: { 
+    flex: 1 
+  }, 
+  eventTitle: { 
+    fontSize: 16, 
+    fontWeight: '800', 
+    marginBottom: 4 
+  }, 
+  eventDate: { 
+    fontSize: 12, 
+    fontWeight: '600' 
+  }, 
+  eventRight: { 
+    alignItems: 'flex-end' 
+  }, 
+  eventTotal: { 
+    fontSize: 20, 
+    fontWeight: '900', 
+    marginBottom: 4 
+  }, 
+  viewText: { 
+    color: '#5BC5A7', 
+    fontWeight: '800', 
+    fontSize: 12 
+  }, 
+  scannerOverlay: { 
+    position: 'absolute', 
+    bottom: 50, 
+    left: 0, 
+    right: 0, 
+    alignItems: 'center' 
+  }, 
+  scannerInstruction: { 
+    color: '#fff', 
+    fontSize: 18, 
+    fontWeight: '800', 
+    marginBottom: 30, 
+    textShadowColor: 'rgba(0,0,0,0.75)', 
+    textShadowOffset: {width: -1, height: 1}, 
+    textShadowRadius: 10 
+  }, 
+  cancelScanBtn: { 
+    backgroundColor: '#EF4444', 
+    paddingVertical: 16, 
+    paddingHorizontal: 40, 
+    borderRadius: 20 
+  }, 
+  cancelScanText: { 
+    color: '#fff', 
+    fontWeight: '900', 
+    fontSize: 16 
+  } 
+});

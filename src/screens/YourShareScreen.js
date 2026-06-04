@@ -1,17 +1,25 @@
-import React, { useState, useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Alert } from 'react-native';
+import React, { useState, useMemo, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Alert, Linking } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { FontAwesome } from '@expo/vector-icons';
 import { PulseButton } from '../components/PulseButton';
+import { registerForPushNotificationsAsync, sendPushNotification } from '../services/notifications';
 
 export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, onNext }) => {
   const [detailsModal, setDetailsModal] = useState({ visible: false, member: null });
   const [settleModal, setSettleModal] = useState({ visible: false, member: null });
   const [settleMethod, setSettleMethod] = useState('UPI'); 
   const [paidById, setPaidById] = useState(null); 
+  
+  const [expoPushToken, setExpoPushToken] = useState('');
 
   const { paymentStrategy, mainPayerId } = eventData;
   const settlements = eventData.settlements || {}; 
   const isHost = profile?.id === eventData.hostId || eventData.hostId === 'USER_ME';
+
+  useEffect(() => {
+    registerForPushNotificationsAsync().then(token => setExpoPushToken(token));
+  }, []);
 
   const memberShares = useMemo(() => {
     const scRate = eventData.taxes?.serviceChargeRate || 0;
@@ -23,17 +31,25 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
     return eventData.members.map(member => {
       let foodBase = 0, drinkBase = 0;
       const itemized = [];
+      
       (eventData.items || []).forEach(item => {
         if (item.type === 'food' && item.assignedTo?.includes(member.id)) {
-          const share = (item.price * item.qty) / item.assignedTo.length;
-          foodBase += share; itemized.push({ name: `${item.name} (${item.qty}/${item.assignedTo.length})`, share, type: 'food' });
+          const splitCount = Math.max(1, item.assignedTo.length); 
+          const share = (item.price * item.qty) / splitCount;
+          foodBase += share; 
+          itemized.push({ name: `${item.name} (${item.qty}/${splitCount})`, share, type: 'food' });
         } else if (item.type === 'drink' && item.drinkCounts?.[member.id] > 0) {
           const share = item.price * item.drinkCounts[member.id];
-          drinkBase += share; itemized.push({ name: `${item.name} (${item.drinkCounts[member.id]}/${item.qty})`, share, type: 'drink' });
+          drinkBase += share; 
+          itemized.push({ name: `${item.name} (${item.drinkCounts[member.id]}/${item.qty})`, share, type: 'drink' });
         }
       });
-      const fSC = foodBase * (scRate / 100), dSC = drinkBase * (scRate / 100);
-      const cgst = (foodBase + fSC) * (cgstRate / 100), sgst = (foodBase + fSC) * (sgstRate / 100), vat = (drinkBase + dSC) * (vatRate / 100);
+      
+      const fSC = foodBase * (scRate / 100);
+      const dSC = drinkBase * (scRate / 100);
+      const cgst = (foodBase + fSC) * (cgstRate / 100);
+      const sgst = (foodBase + fSC) * (sgstRate / 100);
+      const vat = (drinkBase + dSC) * (vatRate / 100);
       const roundedTotal = Math.round(foodBase + drinkBase + fSC + dSC + cgst + sgst + vat);
 
       return { id: member.id, name: member.name, taxes: { sc: fSC + dSC, cgst, sgst, vat }, fees: { convenience: individualFee, discount: individualFee }, itemized, roundedTotal };
@@ -41,8 +57,25 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
   }, [eventData]);
 
   const handleStrategyChange = (strategy) => {
-    Haptics.selectionAsync(); // Light tick for selection changes
-    onUpdateData({ paymentStrategy: strategy });
+    if (strategy === paymentStrategy) return;
+    const hasSettlements = Object.keys(settlements).length > 0;
+
+    const executeChange = () => {
+      Haptics.selectionAsync();
+      const updates = { paymentStrategy: strategy };
+      if (strategy === 'one_person' && !mainPayerId) updates.mainPayerId = profile?.id || eventData.hostId || 'USER_ME';
+      if (hasSettlements) updates.settlements = {};
+      onUpdateData(updates);
+    };
+
+    if (hasSettlements) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+      Alert.alert(
+        'Reset Settlements?',
+        'Switching the payment method will reset all currently settled payments. Do you want to continue?',
+        [ { text: 'Cancel', style: 'cancel' }, { text: 'Yes, Reset', style: 'destructive', onPress: executeChange } ]
+      );
+    } else { executeChange(); }
   };
   
   const handlePayerChange = (id) => {
@@ -52,12 +85,17 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
 
   const handleSaveSettlement = () => {
     if (settleMethod === 'OTHER' && !paidById) return Alert.alert('Select Payer', 'Please select who paid for this person.');
-    
-    // PREMIUM FEEL: Heavy success vibration when a bill is settled!
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     
     const newSettlements = { ...settlements, [settleModal.member.id]: { amount: settleModal.member.roundedTotal, method: settleMethod, paidBy: settleMethod === 'OTHER' ? paidById : settleModal.member.id } };
     onUpdateData({ settlements: newSettlements });
+    
+    // FIX: Only trigger the notification if a non-host member is settling their own bill
+    // (This alerts the host without spamming the host with notifications about their own actions)
+    if (expoPushToken && !isHost) {
+      sendPushNotification(expoPushToken, "Payment Settled 💸", `${profile?.name ? profile.name.split(' ')[0] : 'Someone'} paid their share of ₹${settleModal.member.roundedTotal}!`);
+    }
+
     setSettleModal({ visible: false, member: null });
   };
 
@@ -65,7 +103,6 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
     Alert.alert('Undo Settlement', 'Are you sure you want to mark this as unpaid?', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Undo', style: 'destructive', onPress: () => {
-          // PREMIUM FEEL: Warning double-buzz for undoing a settlement
           Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
           const newSettlements = { ...settlements };
           delete newSettlements[memberId];
@@ -74,8 +111,32 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
     ]);
   };
 
-  const handleGoToLedger = () => {
-    onNext({ paymentStrategy, mainPayerId, memberShares, settlements });
+  const sendIndividualBill = (member) => {
+    let msg = `*DemiTab Receipt : ${eventData.eventName}*\n\n`;
+    msg += `Hey ${member.name.split(' ')[0]}, your share is *₹${member.roundedTotal}*.\n\n`;
+    msg += `🧾 *Itemized Breakdown:*\n`;
+    let hasFoodIcon = false, hasDrinkIcon = false;
+    member.itemized.forEach(i => { 
+      let iconStr = '';
+      if (i.type === 'drink' && !hasDrinkIcon) { iconStr = '🍹 '; hasDrinkIcon = true; } 
+      else if (i.type === 'food' && !hasFoodIcon) { iconStr = '🍔 '; hasFoodIcon = true; }
+      msg += `- ${iconStr}${i.name}: ₹${i.share.toFixed(2)}\n`; 
+    });
+    
+    const totalTaxes = member.taxes.sc + member.taxes.cgst + member.taxes.sgst + member.taxes.vat + member.fees.convenience;
+    if (totalTaxes > 0) {
+      msg += `\n💸 *Taxes & Fees:*\n`;
+      if (member.taxes.sc > 0) msg += `- Service Charge: ₹${member.taxes.sc.toFixed(2)}\n`;
+      if (member.taxes.cgst > 0) msg += `- CGST: ₹${member.taxes.cgst.toFixed(2)}\n`;
+      if (member.taxes.sgst > 0) msg += `- SGST: ₹${member.taxes.sgst.toFixed(2)}\n`;
+      if (member.taxes.vat > 0) msg += `- VAT: ₹${member.taxes.vat.toFixed(2)}\n`;
+      if (member.fees.convenience > 0) msg += `- Platform Fee: ₹${member.fees.convenience.toFixed(2)}\n`;
+      if (member.fees.discount > 0) msg += `- Discount: -₹${member.fees.discount.toFixed(2)}\n`;
+    }
+    
+    msg += `\n💰 *Grand Total: ₹${member.roundedTotal}*\n\n`;
+    msg += `_Split instantly with Demitab_`;
+    Linking.openURL(`whatsapp://send?text=${encodeURIComponent(msg)}`);
   };
 
   const themeStyles = isDarkMode ? darkTheme : lightTheme;
@@ -85,8 +146,12 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
       <View style={[styles.strategyCard, themeStyles.card]}>
         <Text style={[styles.sectionTitle, themeStyles.text]}>How is the bill being paid?</Text>
         <View style={styles.strategyRow}>
-          <TouchableOpacity disabled={!isHost} style={[styles.strategyBtn, paymentStrategy === 'everyone' ? styles.strategyActive : themeStyles.input, !isHost && {opacity: 0.5}]} onPress={() => handleStrategyChange('everyone')}><Text style={[styles.strategyText, paymentStrategy === 'everyone' ? styles.strategyTextActive : themeStyles.text]}>Everyone Pays</Text></TouchableOpacity>
-          <TouchableOpacity disabled={!isHost} style={[styles.strategyBtn, paymentStrategy === 'one_person' ? styles.strategyActive : themeStyles.input, !isHost && {opacity: 0.5}]} onPress={() => handleStrategyChange('one_person')}><Text style={[styles.strategyText, paymentStrategy === 'one_person' ? styles.strategyTextActive : themeStyles.text]}>One Person Pays</Text></TouchableOpacity>
+          <TouchableOpacity disabled={!isHost} style={[styles.strategyBtn, paymentStrategy === 'everyone' ? styles.strategyActive : themeStyles.input, !isHost && {opacity: 0.5}]} onPress={() => handleStrategyChange('everyone')}>
+            <Text style={[styles.strategyText, paymentStrategy === 'everyone' ? styles.strategyTextActive : themeStyles.text]}>Everyone Pays</Text>
+          </TouchableOpacity>
+          <TouchableOpacity disabled={!isHost} style={[styles.strategyBtn, paymentStrategy === 'one_person' ? styles.strategyActive : themeStyles.input, !isHost && {opacity: 0.5}]} onPress={() => handleStrategyChange('one_person')}>
+            <Text style={[styles.strategyText, paymentStrategy === 'one_person' ? styles.strategyTextActive : themeStyles.text]}>One Person Pays</Text>
+          </TouchableOpacity>
         </View>
         {paymentStrategy === 'one_person' && (
           <View style={styles.payerSelectContainer}>
@@ -119,9 +184,15 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
               </View>
 
               <View style={styles.actionRow}>
+                <TouchableOpacity style={[styles.actionBtn, themeStyles.input, {flexDirection: 'row', justifyContent: 'center', gap: 6}]} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); sendIndividualBill(member); }}>
+                  <FontAwesome name="whatsapp" size={16} color="#25D366" />
+                  <Text style={[styles.actionBtnText, themeStyles.text]}>Bill</Text>
+                </TouchableOpacity>
+
                 <TouchableOpacity style={[styles.actionBtn, themeStyles.input]} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setDetailsModal({ visible: true, member }); }}>
                   <Text style={[styles.actionBtnText, themeStyles.text]}>📄 Details</Text>
                 </TouchableOpacity>
+                
                 {isMainPayer ? (
                   <View style={styles.lockedContainer}><Text style={styles.lockedText}>Auto-Settled</Text></View>
                 ) : isSettled ? (
@@ -144,18 +215,20 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
           <View style={styles.modalOverlay}>
             <View style={[styles.modalContent, themeStyles.card]}>
               <Text style={[styles.modalTitle, themeStyles.text]}>{detailsModal.member.name}'s Share</Text>
-              <ScrollView style={styles.modalScroll}>
-                <Text style={[styles.receiptSectionTitle, themeStyles.subText]}>ITEMS</Text>
-                {detailsModal.member.itemized.map((item, idx) => (<View key={idx} style={styles.receiptRow}><Text style={[styles.receiptItemName, themeStyles.text]}>{item.name}</Text><Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{item.share.toFixed(2)}</Text></View>))}
-                <View style={[styles.receiptDivider, themeStyles.divider]} />
-                <Text style={[styles.receiptSectionTitle, themeStyles.subText]}>TAXES & FEES</Text>
-                {detailsModal.member.taxes.sc > 0.01 && (<View style={styles.receiptRow}><Text style={[styles.receiptItemName, themeStyles.text]}>Service Charge</Text><Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{detailsModal.member.taxes.sc.toFixed(2)}</Text></View>)}
-                {detailsModal.member.taxes.cgst > 0.01 && (<View style={styles.receiptRow}><Text style={[styles.receiptItemName, themeStyles.text]}>CGST</Text><Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{detailsModal.member.taxes.cgst.toFixed(2)}</Text></View>)}
-                {detailsModal.member.taxes.sgst > 0.01 && (<View style={styles.receiptRow}><Text style={[styles.receiptItemName, themeStyles.text]}>SGST</Text><Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{detailsModal.member.taxes.sgst.toFixed(2)}</Text></View>)}
-                {detailsModal.member.taxes.vat > 0.01 && (<View style={styles.receiptRow}><Text style={[styles.receiptItemName, themeStyles.text]}>VAT</Text><Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{detailsModal.member.taxes.vat.toFixed(2)}</Text></View>)}
-                {detailsModal.member.fees.convenience > 0 && (<><View style={styles.receiptRow}><Text style={[styles.receiptItemName, themeStyles.text]}>Platform Fee</Text><Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{detailsModal.member.fees.convenience.toFixed(2)}</Text></View><View style={styles.receiptRow}><Text style={[styles.receiptItemName, styles.discountText]}>Trial Offer</Text><Text style={[styles.receiptItemAmount, styles.discountText]}>-₹{detailsModal.member.fees.discount.toFixed(2)}</Text></View></>)}
-                <View style={[styles.receiptDivider, themeStyles.divider]} />
-                <View style={styles.receiptRow}><Text style={[styles.receiptTotalLabel, themeStyles.text]}>GRAND TOTAL</Text><Text style={[styles.receiptTotalAmount, themeStyles.text]}>₹{detailsModal.member.roundedTotal}</Text></View>
+              <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+                <View style={[styles.ticketContainer, themeStyles.ticketBg]}>
+                  <Text style={[styles.receiptSectionTitle, themeStyles.subText]}>ITEMS</Text>
+                  {detailsModal.member.itemized.map((item, idx) => ( <View key={idx} style={styles.receiptRow}><Text style={[styles.receiptItemName, themeStyles.text]}>{item.name}</Text><Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{item.share.toFixed(2)}</Text></View> ))}
+                  <View style={[styles.ticketDashedDivider, themeStyles.dashedBorder]} />
+                  <Text style={[styles.receiptSectionTitle, themeStyles.subText]}>TAXES & FEES</Text>
+                  {detailsModal.member.taxes.sc > 0.01 && ( <View style={styles.receiptRow}><Text style={[styles.receiptItemName, themeStyles.text]}>Service Charge</Text><Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{detailsModal.member.taxes.sc.toFixed(2)}</Text></View> )}
+                  {detailsModal.member.taxes.cgst > 0.01 && ( <View style={styles.receiptRow}><Text style={[styles.receiptItemName, themeStyles.text]}>CGST</Text><Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{detailsModal.member.taxes.cgst.toFixed(2)}</Text></View> )}
+                  {detailsModal.member.taxes.sgst > 0.01 && ( <View style={styles.receiptRow}><Text style={[styles.receiptItemName, themeStyles.text]}>SGST</Text><Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{detailsModal.member.taxes.sgst.toFixed(2)}</Text></View> )}
+                  {detailsModal.member.taxes.vat > 0.01 && ( <View style={styles.receiptRow}><Text style={[styles.receiptItemName, themeStyles.text]}>VAT</Text><Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{detailsModal.member.taxes.vat.toFixed(2)}</Text></View> )}
+                  {detailsModal.member.fees.convenience > 0 && ( <> <View style={styles.receiptRow}><Text style={[styles.receiptItemName, themeStyles.text]}>Platform Fee</Text><Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{detailsModal.member.fees.convenience.toFixed(2)}</Text></View> <View style={styles.receiptRow}><Text style={[styles.receiptItemName, styles.discountText]}>Trial Offer</Text><Text style={[styles.receiptItemAmount, styles.discountText]}>-₹{detailsModal.member.fees.discount.toFixed(2)}</Text></View> </> )}
+                  <View style={[styles.ticketDashedDivider, themeStyles.dashedBorder]} />
+                  <View style={styles.receiptRow}><Text style={[styles.receiptTotalLabel, themeStyles.text]}>GRAND TOTAL</Text><Text style={[styles.receiptTotalAmount, themeStyles.text, { color: '#10B981' }]}>₹{detailsModal.member.roundedTotal}</Text></View>
+                </View>
               </ScrollView>
               <View style={styles.modalActions}><TouchableOpacity style={[styles.modalBtnCancel, themeStyles.input]} onPress={() => setDetailsModal({visible: false, member: null})}><Text style={[styles.modalBtnText, themeStyles.text]}>Close</Text></TouchableOpacity></View>
             </View>
@@ -169,6 +242,7 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
             <View style={[styles.modalContent, themeStyles.card]}>
               <Text style={[styles.modalTitle, themeStyles.text]}>Settle {settleModal.member.name}'s Share</Text>
               <Text style={[styles.settleAmountHuge, themeStyles.text]}>₹{settleModal.member.roundedTotal}</Text>
+              
               <Text style={[styles.sectionTitle, themeStyles.text, {marginTop: 20}]}>Payment Method</Text>
               <View style={styles.methodGrid}>
                 {['UPI', 'CASH', 'CARD', 'OTHER'].map(method => (
@@ -177,6 +251,7 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
                   </TouchableOpacity>
                 ))}
               </View>
+
               {settleMethod === 'OTHER' && (
                 <View style={{marginTop: 20}}>
                   <Text style={[styles.sectionTitle, themeStyles.text]}>Who paid for {settleModal.member.name.split(' ')[0]}?</Text>
@@ -189,6 +264,7 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
                   </ScrollView>
                 </View>
               )}
+
               <View style={[styles.modalActions, {marginTop: 30}]}>
                 <TouchableOpacity style={[styles.modalBtnCancel, themeStyles.input]} onPress={() => setSettleModal({visible: false, member: null})}><Text style={[styles.modalBtnText, themeStyles.text]}>Cancel</Text></TouchableOpacity>
                 <TouchableOpacity style={styles.modalBtnSave} onPress={handleSaveSettlement}><Text style={styles.textWhite}>Save Payment</Text></TouchableOpacity>
@@ -199,7 +275,7 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
       )}
 
       <View style={styles.footer}>
-        <PulseButton onPress={handleGoToLedger} style={styles.finishBtn}>
+        <PulseButton onPress={() => onNext({ paymentStrategy, mainPayerId, memberShares, settlements })} style={styles.finishBtn}>
           <Text style={styles.finishBtnText}>Finish & View Ledger</Text>
         </PulseButton>
       </View>
@@ -207,7 +283,7 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
   );
 };
 
-const lightTheme = { background: { backgroundColor: '#F9FAFB' }, text: { color: '#111827' }, subText: { color: '#6B7280' }, card: { backgroundColor: '#fff', borderColor: '#E5E7EB' }, divider: { backgroundColor: '#E5E7EB' }, input: { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB' }, primaryBtn: { backgroundColor: '#111827' }, primaryBtnText: { color: '#fff' }, pillBase: { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB' } };
-const darkTheme = { background: { backgroundColor: '#111827' }, text: { color: '#F9FAFB' }, subText: { color: '#9CA3AF' }, card: { backgroundColor: '#1F2937', borderColor: '#374151' }, divider: { backgroundColor: '#374151' }, input: { backgroundColor: '#374151', borderColor: '#4B5563' }, primaryBtn: { backgroundColor: '#F9FAFB' }, primaryBtnText: { color: '#111827' }, pillBase: { backgroundColor: '#374151', borderColor: '#4B5563' } };
+const lightTheme = { background: { backgroundColor: '#F9FAFB' }, text: { color: '#111827' }, subText: { color: '#6B7280' }, card: { backgroundColor: '#fff', borderColor: '#E5E7EB' }, divider: { backgroundColor: '#E5E7EB' }, input: { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB' }, primaryBtn: { backgroundColor: '#111827' }, primaryBtnText: { color: '#fff' }, pillBase: { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB' }, ticketBg: { backgroundColor: '#F9FAFB', borderColor: '#E5E7EB' }, dashedBorder: { borderBottomColor: '#D1D5DB' } };
+const darkTheme = { background: { backgroundColor: '#111827' }, text: { color: '#F9FAFB' }, subText: { color: '#9CA3AF' }, card: { backgroundColor: '#1F2937', borderColor: '#374151' }, divider: { backgroundColor: '#374151' }, input: { backgroundColor: '#374151', borderColor: '#4B5563' }, primaryBtn: { backgroundColor: '#F9FAFB' }, primaryBtnText: { color: '#111827' }, pillBase: { backgroundColor: '#374151', borderColor: '#4B5563' }, ticketBg: { backgroundColor: '#374151', borderColor: '#4B5563' }, dashedBorder: { borderBottomColor: '#6B7280' } };
 
-const styles = StyleSheet.create({ container: { flex: 1 }, scrollList: { padding: 20, paddingBottom: 100 }, strategyCard: { padding: 20, borderBottomWidth: 1 }, sectionTitle: { fontSize: 14, fontWeight: '800', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }, strategyRow: { flexDirection: 'row', gap: 10 }, strategyBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, borderWidth: 1, alignItems: 'center' }, strategyActive: { backgroundColor: '#5BC5A7', borderColor: '#5BC5A7' }, strategyText: { fontWeight: '700', fontSize: 14 }, strategyTextActive: { color: '#fff', fontWeight: '900' }, payerSelectContainer: { marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' }, payerPill: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, borderWidth: 1, marginRight: 8 }, payerPillActive: { backgroundColor: '#111827', borderColor: '#111827' }, payerPillText: { fontWeight: '600', fontSize: 14 }, payerPillTextActive: { color: '#fff', fontWeight: '800' }, memberCard: { padding: 16, borderRadius: 16, borderWidth: 1, marginBottom: 12 }, settledCard: { borderColor: '#10B981', backgroundColor: 'rgba(16, 185, 129, 0.05)' }, memberCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }, memberName: { fontSize: 18, fontWeight: '800' }, settledBadge: { color: '#10B981', fontSize: 10, fontWeight: '900', marginTop: 2, letterSpacing: 1 }, memberTotal: { fontSize: 24, fontWeight: '900' }, actionRow: { flexDirection: 'row', gap: 10 }, actionBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, borderWidth: 1, alignItems: 'center' }, actionBtnText: { fontWeight: '800', fontSize: 14 }, textWhite: { color: '#fff', fontWeight: '800' }, discountText: { color: '#10B981', fontWeight: '800' }, lockedContainer: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' }, lockedText: { color: '#10B981', fontWeight: '800', fontSize: 14, marginRight: 10 }, modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' }, modalContent: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '85%' }, modalTitle: { fontSize: 20, fontWeight: '900', textAlign: 'center', marginBottom: 20 }, modalScroll: { marginBottom: 20 }, receiptSectionTitle: { fontSize: 11, fontWeight: '800', letterSpacing: 1, marginBottom: 10, marginTop: 10 }, receiptRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }, receiptItemName: { fontSize: 15, fontWeight: '500', flex: 1 }, receiptItemAmount: { fontSize: 15, fontWeight: '700' }, receiptDivider: { height: 1, marginVertical: 12 }, receiptTotalLabel: { fontSize: 18, fontWeight: '900' }, receiptTotalAmount: { fontSize: 24, fontWeight: '900' }, settleAmountHuge: { fontSize: 48, fontWeight: '900', textAlign: 'center', marginVertical: 10 }, methodGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 }, methodBtn: { flexBasis: '48%', paddingVertical: 16, borderRadius: 12, borderWidth: 1, alignItems: 'center' }, methodBtnActive: { backgroundColor: '#3B82F6', borderColor: '#3B82F6' }, methodBtnText: { fontWeight: '800', fontSize: 14 }, paidByContainer: { marginTop: 20 }, modalActions: { flexDirection: 'row', gap: 12 }, modalBtnCancel: { flex: 1, paddingVertical: 16, borderRadius: 12, alignItems: 'center', borderWidth: 1 }, modalBtnText: { fontWeight: '800', fontSize: 16 }, modalBtnSave: { flex: 1, backgroundColor: '#10B981', paddingVertical: 16, borderRadius: 12, alignItems: 'center' }, footer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: 'transparent' }, finishBtn: { backgroundColor: '#5BC5A7', padding: 18 }, finishBtnText: { color: '#fff', fontWeight: '900', fontSize: 16, textAlign: 'center' }, });
+const styles = StyleSheet.create({ container: { flex: 1 }, scrollList: { padding: 20, paddingBottom: 100 }, strategyCard: { padding: 20, borderBottomWidth: 1 }, sectionTitle: { fontSize: 14, fontWeight: '800', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }, strategyRow: { flexDirection: 'row', gap: 10 }, strategyBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, borderWidth: 1, alignItems: 'center' }, strategyActive: { backgroundColor: '#5BC5A7', borderColor: '#5BC5A7' }, strategyText: { fontWeight: '700', fontSize: 14 }, strategyTextActive: { color: '#fff', fontWeight: '900' }, payerSelectContainer: { marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' }, payerPill: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, borderWidth: 1, marginRight: 8 }, payerPillActive: { backgroundColor: '#111827', borderColor: '#111827' }, payerPillText: { fontWeight: '600', fontSize: 14 }, payerPillTextActive: { color: '#fff', fontWeight: '800' }, memberCard: { padding: 16, borderRadius: 16, borderWidth: 1, marginBottom: 12 }, settledCard: { borderColor: '#10B981', backgroundColor: 'rgba(16, 185, 129, 0.05)' }, memberCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }, memberName: { fontSize: 18, fontWeight: '800' }, settledBadge: { color: '#10B981', fontSize: 10, fontWeight: '900', marginTop: 2, letterSpacing: 1 }, memberTotal: { fontSize: 24, fontWeight: '900' }, actionRow: { flexDirection: 'row', gap: 10 }, actionBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, borderWidth: 1, alignItems: 'center' }, actionBtnText: { fontWeight: '800', fontSize: 14 }, textWhite: { color: '#fff', fontWeight: '800' }, discountText: { color: '#10B981', fontWeight: '800' }, lockedContainer: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' }, lockedText: { color: '#10B981', fontWeight: '800', fontSize: 14, marginRight: 10 }, modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' }, modalContent: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '85%' }, modalTitle: { fontSize: 20, fontWeight: '900', textAlign: 'center', marginBottom: 20 }, modalScroll: { marginBottom: 20 }, ticketContainer: { padding: 24, borderRadius: 16, borderWidth: 1, marginBottom: 20 }, ticketDashedDivider: { height: 0, borderBottomWidth: 1, borderStyle: 'dashed', marginVertical: 16 }, receiptSectionTitle: { fontSize: 11, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginTop: 4 }, receiptRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10, alignItems: 'center' }, receiptItemName: { fontSize: 15, fontWeight: '600', flex: 1, paddingRight: 15 }, receiptItemAmount: { fontSize: 15, fontWeight: '800' }, receiptTotalLabel: { fontSize: 16, fontWeight: '900' }, receiptTotalAmount: { fontSize: 32, fontWeight: '900' }, settleAmountHuge: { fontSize: 48, fontWeight: '900', textAlign: 'center', marginVertical: 10 }, methodGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 }, methodBtn: { flexBasis: '48%', paddingVertical: 16, borderRadius: 12, borderWidth: 1, alignItems: 'center' }, methodBtnActive: { backgroundColor: '#3B82F6', borderColor: '#3B82F6' }, methodBtnText: { fontWeight: '800', fontSize: 14 }, paidByContainer: { marginTop: 20 }, modalActions: { flexDirection: 'row', gap: 12 }, modalBtnCancel: { flex: 1, paddingVertical: 16, borderRadius: 12, alignItems: 'center', borderWidth: 1 }, modalBtnText: { fontWeight: '800', fontSize: 16 }, modalBtnSave: { flex: 1, backgroundColor: '#10B981', paddingVertical: 16, borderRadius: 12, alignItems: 'center' }, footer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: 'transparent' }, finishBtn: { backgroundColor: '#5BC5A7', padding: 18 }, finishBtnText: { color: '#fff', fontWeight: '900', fontSize: 16, textAlign: 'center' } });
