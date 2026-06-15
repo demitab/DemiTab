@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, TextInput, FlatList, StyleSheet, Alert, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { View, Text, TextInput, FlatList, StyleSheet, Alert, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PulseButton } from '../components/PulseButton';
@@ -20,6 +20,7 @@ export const AddItemsScreen = ({ eventData, profile, isDarkMode, onSaveItems }) 
   const isHost = profile.id === eventData.hostId || eventData.hostId === 'USER_ME';
   const themeStyles = isDarkMode ? darkTheme : lightTheme;
   const insets = useSafeAreaInsets();
+  const listRef = useRef(null);
 
   const syncItemsToDB = async (updatedItems) => {
     setItems(updatedItems); 
@@ -39,7 +40,6 @@ export const AddItemsScreen = ({ eventData, profile, isDarkMode, onSaveItems }) 
     if (!permission.granted) return Alert.alert('Permission required', 'We need access to scan the receipt.');
 
     const options = { base64: true, quality: 0.4 }; 
-    
     const result = useCamera ? await ImagePicker.launchCameraAsync(options) : await ImagePicker.launchImageLibraryAsync(options);
     
     if (!result.canceled) {
@@ -65,21 +65,15 @@ export const AddItemsScreen = ({ eventData, profile, isDarkMode, onSaveItems }) 
         
         await logEvent(getAnalytics(), 'receipt_scanned', { item_count: newItems.length });
 
-        // 🚀 FIX: Clean Native Upload (Passes Auth Rules and sets Content-Type)
         let downloadUrl = null;
         try {
           const fileName = `receipts/event_${eventData.id}_${Date.now()}.jpg`;
           const reference = storage.ref(fileName);
           
-          // Upload the raw local URI directly, explicitly telling Firebase it's an image
-          await reference.putFile(result.assets[0].uri, {
-            contentType: 'image/jpeg',
-          });
-          
+          await reference.putFile(result.assets[0].uri, { contentType: 'image/jpeg' });
           downloadUrl = await reference.getDownloadURL();
         } catch (uploadError) { 
-          console.error(uploadError);
-          Alert.alert("Storage Error!", "Could not save image to Firebase. Error: " + uploadError.message); 
+          Alert.alert("Storage Error!", "Could not save image. Error: " + uploadError.message); 
         }
 
         if (eventData.id) {
@@ -88,8 +82,19 @@ export const AddItemsScreen = ({ eventData, profile, isDarkMode, onSaveItems }) 
           await updateDoc(doc(db, 'events', eventData.id), updatePayload);
         }
         
+        // THE FIX: Find exactly where the new list starts before updating the state
+        const startingIndex = items.length;
         setItems([...items, ...newItems]);
         Alert.alert('Scan Successful', 'Receipt uploaded and categorized.');
+
+        // Scroll cleanly to the first newly scanned item
+        setTimeout(() => {
+          if (listRef.current && startingIndex > 0) {
+            try {
+              listRef.current.scrollToIndex({ index: startingIndex, animated: true, viewPosition: 0 });
+            } catch (e) { console.log(e); }
+          }
+        }, 500);
 
       } catch (e) { Alert.alert('Gemini Diagnostics', String(e.message)); } 
       finally { setIsScanning(false); }
@@ -126,6 +131,10 @@ export const AddItemsScreen = ({ eventData, profile, isDarkMode, onSaveItems }) 
       setEditingId(null);
     } else {
       syncItemsToDB([{ id: Date.now().toString(), name: itemName, qty: parsedQty, price: calculatedPrice, type: itemType, assignedTo: itemType === 'food' ? eventData.members.map(m => m.id) : [], drinkCounts: {} }, ...items]);
+      
+      setTimeout(() => {
+        try { listRef.current?.scrollToIndex({ index: 0, animated: true }); } catch(e) {}
+      }, 500);
     }
     setItemName(''); setQuantity('1'); setAmount(''); setItemType('food');
   };
@@ -188,6 +197,14 @@ export const AddItemsScreen = ({ eventData, profile, isDarkMode, onSaveItems }) 
       ) : null}
 
       <FlatList 
+        ref={listRef} 
+        onScrollToIndexFailed={(info) => {
+          // Fallback catch if the list renders too slowly
+          const wait = new Promise(resolve => setTimeout(resolve, 500));
+          wait.then(() => {
+            listRef.current?.scrollToIndex({ index: info.index, animated: true });
+          });
+        }}
         data={items} 
         contentContainerStyle={{paddingBottom: 20}} 
         keyExtractor={(item) => item.id} 

@@ -21,8 +21,9 @@ export const SummaryScreen = ({ eventData, isDarkMode, onFinish }) => {
     let dTotal = 0;
     (eventData.items || []).forEach(item => {
       const amount = item.price * item.qty;
-      if (item.type === 'food') fTotal += amount;
-      if (item.type === 'drink') dTotal += amount;
+      const itemType = item.type ? item.type.toLowerCase() : 'uncategorized';
+      if (itemType === 'drink' || itemType === 'drinks') dTotal += amount;
+      else fTotal += amount;
     });
     return { foodSubtotal: fTotal, drinkSubtotal: dTotal, itemsTotal: fTotal + dTotal };
   }, [eventData.items]);
@@ -111,13 +112,15 @@ export const SummaryScreen = ({ eventData, isDarkMode, onFinish }) => {
         <Text style={[styles.title, themeStyles.text]}>Bill Summary</Text>
         <Text style={themeStyles.subText}>Enter tax percentages to verify the grand total.</Text>
 
-        {/* Carousel Restored */}
+        {/* THE FIX: Compact Horizontal Scroll for Receipts */}
         {allReceipts.length > 0 ? (
           <View style={styles.receiptsContainer}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 10 }}>
               {allReceipts.map((url, index) => (
                 <TouchableOpacity key={index} style={[styles.receiptBtn, themeStyles.receiptBtnBg]} onPress={() => Linking.openURL(url)}>
-                  <Text style={[styles.receiptBtnText, themeStyles.receiptBtnText]}>🧾 View Scanned Bill {allReceipts.length > 1 ? `(${index + 1})` : ''}</Text>
+                  <Text style={[styles.receiptBtnText, themeStyles.receiptBtnText]}>
+                    🧾 View Bill {index + 1}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -220,9 +223,12 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 190 },
   title: { fontSize: 24, fontWeight: '900', textAlign: 'center', marginBottom: 4 },
-  receiptsContainer: { marginBottom: 16, width: '100%', alignItems: 'center' },
-  receiptBtn: { width: '100%', paddingVertical: 14, borderRadius: 12, alignItems: 'center', borderWidth: 1 },
-  receiptBtnText: { fontWeight: '800', fontSize: 14 },
+  receiptsContainer: { marginBottom: 16, width: '100%' },
+  
+  // THE FIX: Updated button styles to be compact and horizontal
+  receiptBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 12, alignItems: 'center', borderWidth: 1, marginRight: 10 },
+  receiptBtnText: { fontWeight: '800', fontSize: 13 },
+  
   card: { padding: 12, borderRadius: 16, borderWidth: 1, marginBottom: 12 },
   sectionTitle: { fontSize: 14, fontWeight: '800', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
   row: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },

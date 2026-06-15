@@ -39,36 +39,46 @@ export const InsightsSection = ({ events, profile, isDarkMode }) => {
 
       if (!isIncluded) return;
 
-      // 🚀 FIX: Using the EXACT mathematical formula derived from your mathUtils.js file
       let myFood = 0;
       let myDrink = 0;
       const mLen = (event.members && event.members.length > 0) ? event.members.length : 1;
 
       (event.items || []).forEach(item => {
-        if (item.type === 'food') {
-          const splitAmong = item.splitAmong || item.assignedTo || [];
-          if (splitAmong.length === 0) {
-            myFood += (item.amount || (item.price * item.qty) || 0) / mLen;
-          } else if (splitAmong.includes(profile.id)) {
-            myFood += (item.amount || (item.price * item.qty) || 0) / splitAmong.length;
-          }
-        } else if (item.type === 'drinks' || item.type === 'drink') {
+        const itemTotal = Number(item.amount) || (Number(item.price) * Number(item.qty)) || 0;
+        const itemType = item.type ? item.type.toLowerCase() : 'uncategorized';
+
+        if (itemType === 'drink' || itemType === 'drinks') {
           const claimed = item.drinksClaimed || item.drinkCounts || {};
           if (claimed[profile.id] > 0) {
-            myDrink += (claimed[profile.id] / (item.qty || 1)) * (item.amount || (item.price * item.qty) || 0);
+            myDrink += (claimed[profile.id] / (item.qty || 1)) * itemTotal;
+          }
+        } else {
+          // Everything else cleanly defaults to Food
+          const splitAmong = item.splitAmong || item.assignedTo || [];
+          if (splitAmong.length === 0) {
+            myFood += itemTotal / mLen;
+          } else if (splitAmong.includes(profile.id)) {
+            myFood += itemTotal / splitAmong.length;
           }
         }
       });
 
       const taxes = event.taxes || {};
+      const scRate = (Number(taxes.serviceCharge) || Number(taxes.serviceChargeRate) || 0) / 100;
       const cgstRate = (Number(taxes.cgstFood) || Number(taxes.cgstRate) || 0) / 100;
       const sgstRate = (Number(taxes.sgstFood) || Number(taxes.sgstRate) || 0) / 100;
       const vatRate = (Number(taxes.vatDrinks) || Number(taxes.vatRate) || 0) / 100;
-      const scRate = (Number(taxes.serviceCharge) || Number(taxes.serviceChargeRate) || 0) / 100;
 
-      // Exact mathematical translation including base taxes
-      const exactFoodCost = myFood + (myFood * cgstRate) + (myFood * sgstRate) + (myFood * scRate);
-      const exactDrinkCost = myDrink + (myDrink * vatRate) + (myDrink * scRate);
+      // THE FIX: Taxes are compounded ON TOP of the Service Charge exactly like SummaryScreen!
+      const myFoodSC = myFood * scRate;
+      const myDrinkSC = myDrink * scRate;
+
+      const myFoodCGST = (myFood + myFoodSC) * cgstRate;
+      const myFoodSGST = (myFood + myFoodSC) * sgstRate;
+      const myDrinkVAT = (myDrink + myDrinkSC) * vatRate;
+
+      const exactFoodCost = myFood + myFoodSC + myFoodCGST + myFoodSGST;
+      const exactDrinkCost = myDrink + myDrinkSC + myDrinkVAT;
 
       if (exactFoodCost > 0) {
         fTotal += exactFoodCost;

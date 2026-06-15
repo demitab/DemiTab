@@ -55,7 +55,23 @@ export const AuthScreen = ({ isDarkMode }) => {
         ) : (
           <>
             <Text style={styles.label}>Enter OTP</Text>
-            <TextInput style={[styles.inputSingle, themeStyles.inputBorder, themeStyles.text]} keyboardType="number-pad" maxLength={6} value={code} onChangeText={setCode} placeholder="123456" placeholderTextColor={isDarkMode ? '#9CA3AF' : '#6B7280'} textContentType="oneTimeCode" autoComplete="sms-otp" />
+            <TextInput 
+              style={[styles.inputSingle, themeStyles.inputBorder, themeStyles.text]} 
+              keyboardType="number-pad" 
+              maxLength={6} 
+              value={code} 
+              onChangeText={(text) => {
+                setCode(text);
+                // AUTO-VERIFY FEATURE
+                if (text.length === 6) {
+                  handleVerifyCode(text);
+                }
+              }} 
+              placeholder="123456" 
+              placeholderTextColor={isDarkMode ? '#9CA3AF' : '#6B7280'} 
+              textContentType="oneTimeCode" 
+              autoComplete="sms-otp" 
+            />
             <TouchableOpacity style={styles.primaryBtn} onPress={() => handleVerifyCode(code)} disabled={loading}>
               {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Verify & Login</Text>}
             </TouchableOpacity>
