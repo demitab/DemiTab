@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, Alert, TextInput } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, Alert, TextInput, Share } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { PulseButton } from '../components/PulseButton';
@@ -105,15 +105,33 @@ export const DashboardScreen = ({ profile, isDarkMode, toggleTheme, onOpenEvent,
     ]);
   };
 
+  // 🚀 FIX: Global App Share Function
+  const handleShareApp = async () => {
+    Haptics.selectionAsync();
+    try {
+      const configSnap = await getDoc(doc(db, 'app_config', 'global'));
+      let finalApkUrl = "https://firebasestorage.googleapis.com/v0/b/demitab-500b3.firebasestorage.app/o/DemiTab.apk?alt=media&token=73aba156-2027-42fb-9674-0544133b3f82";
+      if (configSnap.exists() && configSnap.data().apkUrl) {
+        finalApkUrl = configSnap.data().apkUrl;
+      }
+      await Share.share({ message: `Hey! I use DemiTab to scan receipts and split bills effortlessly. Download it here to join my group: ${finalApkUrl}` });
+    } catch(e) { console.log(e); }
+  };
+
   return (
     <View style={[styles.container, themeStyles.background]}>
       <View style={[styles.header, themeStyles.card]}>
         <View style={styles.headerLeft}>
           <Text style={[styles.greeting, themeStyles.text]}>Hello, {localName ? localName.split(' ')[0] : 'User'} 👋</Text>
         </View>
-        <TouchableOpacity style={styles.themeToggle} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); toggleTheme(); }}>
-          <Text style={{ fontSize: 24 }}>{isDarkMode ? '☀️' : '🌙'}</Text>
-        </TouchableOpacity>
+        <View style={styles.headerRight}>
+          <TouchableOpacity style={[styles.actionIconBtn, themeStyles.iconBtnBg]} onPress={handleShareApp}>
+            <Text style={{ fontSize: 18 }}>📤</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.actionIconBtn, themeStyles.iconBtnBg]} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); toggleTheme(); }}>
+            <Text style={{ fontSize: 18 }}>{isDarkMode ? '☀️' : '🌙'}</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <FlatList
@@ -147,12 +165,10 @@ export const DashboardScreen = ({ profile, isDarkMode, toggleTheme, onOpenEvent,
               </TouchableOpacity>
             </View>
 
-            {/* 🚀 FIX: Strict Ternary to prevent <Text> Crash */}
             {dashboardTab === 'INSIGHTS' ? (
               <InsightsSection events={events} profile={profile} isDarkMode={isDarkMode} />
             ) : null}
 
-            {/* 🚀 FIX: Strict Ternary to prevent <Text> Crash */}
             {dashboardTab === 'EVENTS' ? (
               <View style={styles.pastEventsHeader}>
                 <Text style={[styles.sectionTitle, themeStyles.text]}>Past Events</Text>
@@ -202,7 +218,8 @@ const lightTheme = {
   text: { color: '#111827' }, 
   subText: { color: '#6B7280' }, 
   card: { backgroundColor: '#fff', borderColor: '#E5E7EB' }, 
-  input: { backgroundColor: '#F3F4F6' } 
+  input: { backgroundColor: '#F3F4F6' },
+  iconBtnBg: { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB' }
 };
 
 const darkTheme = { 
@@ -210,7 +227,8 @@ const darkTheme = {
   text: { color: '#F9FAFB' }, 
   subText: { color: '#9CA3AF' }, 
   card: { backgroundColor: '#1F2937', borderColor: '#374151' }, 
-  input: { backgroundColor: '#374151' } 
+  input: { backgroundColor: '#374151' },
+  iconBtnBg: { backgroundColor: '#374151', borderColor: '#4B5563' }
 };
 
 const styles = StyleSheet.create({ 
@@ -218,7 +236,8 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 24, paddingTop: 60, borderBottomWidth: 1, borderBottomLeftRadius: 24, borderBottomRightRadius: 24 }, 
   headerLeft: { flex: 1 }, 
   greeting: { fontSize: 24, fontWeight: '900'}, 
-  themeToggle: { padding: 10, backgroundColor: 'rgba(0,0,0,0.05)', borderRadius: 20 }, 
+  headerRight: { flexDirection: 'row', gap: 10 },
+  actionIconBtn: { padding: 10, borderRadius: 20, borderWidth: 1 }, 
   listContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 150 }, 
   topLayoutGroup: { marginBottom: 10 }, 
   input: { padding: 18, borderRadius: 16, borderWidth: 1, marginBottom: 16, fontSize: 16, fontWeight: '600' }, 

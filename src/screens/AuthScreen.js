@@ -46,7 +46,7 @@ export const AuthScreen = ({ isDarkMode }) => {
             <Text style={styles.label}>Enter Phone Number</Text>
             <View style={[styles.compositeInput, themeStyles.inputBorder]}>
               <Text style={[styles.prefix, themeStyles.text]}>+91</Text>
-              <TextInput style={[styles.input, themeStyles.text]} keyboardType="phone-pad" maxLength={10} value={phoneNumber} onChangeText={setPhoneNumber} placeholder="9999999999" placeholderTextColor={isDarkMode ? '#9CA3AF' : '#6B7280'} />
+              <TextInput style={[styles.input, themeStyles.text]} keyboardType="phone-pad" maxLength={10} value={phoneNumber} onChangeText={setPhoneNumber} placeholder="9999999999" placeholderTextColor={isDarkMode ? '#6B7280' : '#9CA3AF'} />
             </View>
             <TouchableOpacity style={styles.primaryBtn} onPress={handleSendCode} disabled={loading}>
               {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryBtnText}>Send OTP</Text>}

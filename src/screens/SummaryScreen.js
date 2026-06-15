@@ -70,11 +70,8 @@ export const SummaryScreen = ({ eventData, isDarkMode, onFinish }) => {
           actualTotal: actualParsed,
           calculatedTotal: taxMath.roundedTotal
         });
-      } catch (e) { 
-        console.log("Failed to sync taxes live:", e); 
-      }
+      } catch (e) { console.log("Failed to sync taxes live:", e); }
     }, 1000);
-    
     return () => clearTimeout(pushTaxes);
   }, [serviceCharge, cgst, sgst, vat, actualTotal, taxMath, eventData.id]);
 
@@ -86,19 +83,10 @@ export const SummaryScreen = ({ eventData, isDarkMode, onFinish }) => {
   }
 
   const handleNext = async () => {
-    if (actualParsed === 0) {
-      return Alert.alert('Missing Total', 'Please enter the actual total from the receipt to verify the math.');
-    }
-    if (!isMatch) {
-      return Alert.alert(
-        'Totals Do Not Match', 
-        `Your entered total is ₹${actualRounded}, but the calculated total is ₹${taxMath.roundedTotal}. Please fix any errors before continuing.`
-      );
-    }
+    if (actualParsed === 0) return Alert.alert('Missing Total', 'Please enter the actual total from the receipt to verify the math.');
+    if (!isMatch) return Alert.alert('Totals Do Not Match', `Your entered total is ₹${actualRounded}, but the calculated total is ₹${taxMath.roundedTotal}. Please fix any errors before continuing.`);
 
-    try {
-      await logEvent(getAnalytics(), 'math_verified', { total_amount: actualParsed });
-    } catch (e) { console.log('Analytics Error', e); }
+    try { await logEvent(getAnalytics(), 'math_verified', { total_amount: actualParsed }); } catch (e) { }
 
     onFinish({
       serviceChargeRate: parseFloat(serviceCharge) || 0,
@@ -114,12 +102,27 @@ export const SummaryScreen = ({ eventData, isDarkMode, onFinish }) => {
     });
   };
 
+  const allReceipts = eventData.receiptUrls || (eventData.receiptUrl ? [eventData.receiptUrl] : []);
+
   return (
     <KeyboardAvoidingView style={[styles.container, themeStyles.background]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         
         <Text style={[styles.title, themeStyles.text]}>Bill Summary</Text>
         <Text style={themeStyles.subText}>Enter tax percentages to verify the grand total.</Text>
+
+        {/* Carousel Restored */}
+        {allReceipts.length > 0 ? (
+          <View style={styles.receiptsContainer}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
+              {allReceipts.map((url, index) => (
+                <TouchableOpacity key={index} style={[styles.receiptBtn, themeStyles.receiptBtnBg]} onPress={() => Linking.openURL(url)}>
+                  <Text style={[styles.receiptBtnText, themeStyles.receiptBtnText]}>🧾 View Scanned Bill {allReceipts.length > 1 ? `(${index + 1})` : ''}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
 
         <View style={[styles.card, themeStyles.card]}>
           <Text style={[styles.sectionTitle, themeStyles.text]}>Items Subtotal</Text>
@@ -140,7 +143,6 @@ export const SummaryScreen = ({ eventData, isDarkMode, onFinish }) => {
 
         <View style={[styles.card, themeStyles.card]}>
           <Text style={[styles.sectionTitle, themeStyles.text]}>Taxes & Charges (%)</Text>
-          
           <View style={styles.inputRow}>
             <View style={styles.inputLabelContainer}>
               <Text style={[styles.inputLabel, themeStyles.text]}>Service Charge</Text>
@@ -151,7 +153,6 @@ export const SummaryScreen = ({ eventData, isDarkMode, onFinish }) => {
               <Text style={styles.percentSign}>%</Text>
             </View>
           </View>
-          
           <View style={styles.inputRow}>
             <View style={styles.inputLabelContainer}>
               <Text style={[styles.inputLabel, themeStyles.text]}>CGST (Food)</Text>
@@ -162,7 +163,6 @@ export const SummaryScreen = ({ eventData, isDarkMode, onFinish }) => {
               <Text style={styles.percentSign}>%</Text>
             </View>
           </View>
-
           <View style={styles.inputRow}>
             <View style={styles.inputLabelContainer}>
               <Text style={[styles.inputLabel, themeStyles.text]}>SGST (Food)</Text>
@@ -173,7 +173,6 @@ export const SummaryScreen = ({ eventData, isDarkMode, onFinish }) => {
               <Text style={styles.percentSign}>%</Text>
             </View>
           </View>
-
           <View style={styles.inputRow}>
             <View style={styles.inputLabelContainer}>
               <Text style={[styles.inputLabel, themeStyles.text]}>VAT (Liquor)</Text>
@@ -198,14 +197,7 @@ export const SummaryScreen = ({ eventData, isDarkMode, onFinish }) => {
             <Text style={styles.vsText}>VS</Text>
             <View style={[styles.totalBox, themeStyles.inputBorder]}>
               <Text style={[styles.totalBoxLabel, themeStyles.subText]}>Actual Receipt</Text>
-              <TextInput 
-                style={[styles.actualInput, themeStyles.text]} 
-                placeholder="0" 
-                placeholderTextColor={isDarkMode ? "#9CA3AF" : "#6B7280"} 
-                keyboardType="numeric" 
-                value={actualTotal} 
-                onChangeText={setActualTotal} 
-              />
+              <TextInput style={[styles.actualInput, themeStyles.text]} placeholder="0" placeholderTextColor={isDarkMode ? "#9CA3AF" : "#6B7280"} keyboardType="numeric" value={actualTotal} onChangeText={setActualTotal} />
             </View>
           </View>
           {actualParsed > 0 ? <Text style={[styles.statusMessage, isMatch ? styles.textSuccess : styles.textError]}>{statusMessage}</Text> : null}
@@ -221,13 +213,16 @@ export const SummaryScreen = ({ eventData, isDarkMode, onFinish }) => {
   );
 };
 
-const lightTheme = { background: { backgroundColor: '#F9FAFB' }, text: { color: '#111827' }, subText: { color: '#6B7280', textAlign: 'center', marginBottom: 16 }, card: { backgroundColor: '#fff', borderColor: '#E5E7EB' }, divider: { backgroundColor: '#F3F4F6' }, inputBorder: { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB' }, inputText: { color: '#111827' } };
-const darkTheme = { background: { backgroundColor: '#111827' }, text: { color: '#F9FAFB' }, subText: { color: '#9CA3AF', textAlign: 'center', marginBottom: 16 }, card: { backgroundColor: '#1F2937', borderColor: '#374151' }, divider: { backgroundColor: '#374151' }, inputBorder: { backgroundColor: '#374151', borderColor: '#4B5563' }, inputText: { color: '#F9FAFB' } };
+const lightTheme = { background: { backgroundColor: '#F9FAFB' }, text: { color: '#111827' }, subText: { color: '#6B7280', textAlign: 'center', marginBottom: 16 }, card: { backgroundColor: '#fff', borderColor: '#E5E7EB' }, divider: { backgroundColor: '#F3F4F6' }, inputBorder: { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB' }, inputText: { color: '#111827' }, receiptBtnBg: { backgroundColor: 'rgba(91, 197, 167, 0.15)', borderColor: 'rgba(91, 197, 167, 0.3)' }, receiptBtnText: { color: '#5BC5A7' } };
+const darkTheme = { background: { backgroundColor: '#111827' }, text: { color: '#F9FAFB' }, subText: { color: '#9CA3AF', textAlign: 'center', marginBottom: 16 }, card: { backgroundColor: '#1F2937', borderColor: '#374151' }, divider: { backgroundColor: '#374151' }, inputBorder: { backgroundColor: '#374151', borderColor: '#4B5563' }, inputText: { color: '#F9FAFB' }, receiptBtnBg: { backgroundColor: '#1F2937', borderColor: '#5BC5A7' }, receiptBtnText: { color: '#5BC5A7' } };
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 190 },
   title: { fontSize: 24, fontWeight: '900', textAlign: 'center', marginBottom: 4 },
+  receiptsContainer: { marginBottom: 16, width: '100%', alignItems: 'center' },
+  receiptBtn: { width: '100%', paddingVertical: 14, borderRadius: 12, alignItems: 'center', borderWidth: 1 },
+  receiptBtnText: { fontWeight: '800', fontSize: 14 },
   card: { padding: 12, borderRadius: 16, borderWidth: 1, marginBottom: 12 },
   sectionTitle: { fontSize: 14, fontWeight: '800', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
   row: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },

@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
-import { getAuth, onAuthStateChanged } from '@react-native-firebase/auth';
+import nativeAuth from '@react-native-firebase/auth';
+import nativeStorage from '@react-native-firebase/storage'; // 🚀 NEW: Native Storage
 
 const firebaseConfig = {
   apiKey: "AIzaSyAdYaTYZ84dGz1yLhd6-49P00-NlOVoQIE", 
@@ -13,5 +14,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
-export const auth = getAuth(); 
-export { onAuthStateChanged };
+export const auth = nativeAuth(); 
+export const storage = nativeStorage(); // 🚀 Exporting Native Storage
+
+export const onAuthStateChanged = (authInstance, callback) => authInstance.onAuthStateChanged(callback);

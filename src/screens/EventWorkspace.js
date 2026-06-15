@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Share, Alert } from 'react-native';
 import { doc, setDoc, onSnapshot, getDocs, collection, query, where, getDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
+import { sendPushNotification } from '../services/notifications';
 
 import { AddMembersScreen } from './AddMembersScreen';
 import { AddItemsScreen } from './AddItemsScreen';
@@ -37,18 +38,14 @@ export const EventWorkspace = ({ activeEvent, profile, isDarkMode, toggleTheme, 
     setEventData(updatedEvent); 
     try {
       await setDoc(doc(db, 'events', updatedEvent.id), updatedEvent);
-    } catch (e) {
-      console.error('Cloud save failed', e);
-    }
+    } catch (e) { console.error('Cloud save failed', e); }
   };
 
   useEffect(() => {
     const unsubscribe = onSnapshot(doc(db, 'events', eventData.id), (docSnap) => {
       if (docSnap.exists()) {
         const cloudData = docSnap.data();
-        if (JSON.stringify(cloudData) !== JSON.stringify(eventData)) {
-          setEventData(cloudData);
-        }
+        if (JSON.stringify(cloudData) !== JSON.stringify(eventData)) setEventData(cloudData);
       }
     });
     return () => unsubscribe();
@@ -66,11 +63,8 @@ export const EventWorkspace = ({ activeEvent, profile, isDarkMode, toggleTheme, 
               const memberIds = finalMembers.map(m => m.id).filter(Boolean);
               const memberPhones = finalMembers.map(m => m.phone ? m.phone.replace(/\D/g, '').slice(-10) : '').filter(Boolean);
               
-              const existingPhones = (eventData.members || []).map(m => m.phone ? m.phone.replace(/\D/g, '').slice(-10) : '');
-              const newlyAdded = finalMembers.filter(m => {
-                const mPhone = m.phone ? m.phone.replace(/\D/g, '').slice(-10) : '';
-                return mPhone && !existingPhones.includes(mPhone) && m.id !== profile?.id;
-              });
+              const existingIds = (eventData.members || []).map(m => m.id);
+              const newlyAdded = finalMembers.filter(m => !existingIds.includes(m.id) && m.id !== profile?.id);
 
               const updatedItems = (eventData.items || []).map(item => {
                 let newItem = { ...item };
@@ -89,71 +83,75 @@ export const EventWorkspace = ({ activeEvent, profile, isDarkMode, toggleTheme, 
                 return newItem;
               });
 
-              const updatedSettlements = {};
-              if (eventData.settlements) {
-                Object.keys(eventData.settlements).forEach(k => {
-                  if (memberIds.includes(k)) updatedSettlements[k] = eventData.settlements[k];
-                });
-              }
-
               pushToCloud({ 
                 members: finalMembers, 
                 memberIds, 
                 memberPhones, 
-                mainPayerId: eventData.mainPayerId || eventData.hostId,
-                items: updatedItems,
-                settlements: updatedSettlements
+                items: updatedItems
               });
 
-              // SMS Invite Logic (Restored, but Silent Push Notifications are gone)
+              // 🚀 FIX: Bulletproof SMS Invite logic for ALL unverified users
               if (newlyAdded.length > 0) {
+                const hostName = profile?.name ? profile.name.split(' ')[0] : 'The Host';
                 const eventName = eventData.eventName || 'an event';
                 const nonAppUsers = [];
 
-                try {
-                  for (const member of newlyAdded) {
+                for (const member of newlyAdded) {
+                  let hasApp = false;
+
+                  // 1. Try resolving via known USER_ ID
+                  if (member.id && member.id.startsWith('USER_')) {
+                    const userDoc = await getDoc(doc(db, 'users', member.id));
+                    if (userDoc.exists() && userDoc.data().expoPushToken) {
+                      hasApp = true;
+                      sendPushNotification(userDoc.data().expoPushToken, "Added to Event! 🍽️", `${hostName} added you to an event (${eventName}).`);
+                    }
+                  }
+
+                  // 2. Try resolving via Phone Number if ID check failed
+                  if (!hasApp && member.phone) {
                     const phone10 = member.phone.replace(/\D/g, '').slice(-10);
-                    const usersQuery = query(collection(db, 'users'), where('phone', '==', phone10));
-                    const usersSnap = await getDocs(usersQuery);
-                    
-                    let hasApp = false;
-                    usersSnap.forEach(docSnap => {
-                       if (docSnap.data().expoPushToken) {
+                    if (phone10) {
+                      const usersQuery = query(collection(db, 'users'), where('phone', '==', phone10));
+                      const usersSnap = await getDocs(usersQuery);
+                      usersSnap.forEach(docSnap => {
+                        const ud = docSnap.data();
+                        if (ud.expoPushToken) {
                           hasApp = true;
-                          // 🚀 FIX: The sendPushNotification trigger has been explicitly deleted here.
-                       }
-                    });
-
-                    if (!hasApp && phone10) nonAppUsers.push(member);
-                  }
-
-                  if (nonAppUsers.length > 0) {
-                    const names = nonAppUsers.map(m => m.name.split(' ')[0]).join(', ');
-                    Alert.alert(
-                      "Invite Friends",
-                      `${names} isn't on DemiTab yet! Send them an invite link so they can see the bill?`,
-                      [
-                        { text: "Skip", style: "cancel" },
-                        { 
-                          text: "Send Invite", 
-                          onPress: async () => {
-                            try {
-                              const configSnap = await getDoc(doc(db, 'app_config', 'global'));
-                              let finalApkUrl = "https://firebasestorage.googleapis.com/v0/b/demitab-500b3.firebasestorage.app/o/DemiTab.apk?alt=media&token=73aba156-2027-42fb-9674-0544133b3f82";
-                              if (configSnap.exists() && configSnap.data().apkUrl) {
-                                finalApkUrl = configSnap.data().apkUrl;
-                              }
-                              const msg = `Hey! I just added you to "${eventName}" on DemiTab. Download the app to check the receipt and settle up: ${finalApkUrl}`;
-                              await Share.share({ message: msg });
-                            } catch(e) { console.log("Error sharing invite link:", e); }
-                          }
+                          sendPushNotification(ud.expoPushToken, "Added to Event! 🍽️", `${hostName} added you to an event (${eventName}).`);
                         }
-                      ]
-                    );
+                      });
+                    }
                   }
-                } catch (err) { console.log("Could not process newly added users", err); }
-              }
 
+                  // 3. If neither worked, they definitely don't have the app installed
+                  if (!hasApp) {
+                    nonAppUsers.push(member);
+                  }
+                }
+
+                if (nonAppUsers.length > 0) {
+                  const names = nonAppUsers.map(m => m.name.split(' ')[0]).join(', ');
+                  Alert.alert(
+                    "Invite Friends",
+                    `${names} isn't on DemiTab yet! Send an invite link so they can view the receipt?`,
+                    [
+                      { text: "Skip", style: "cancel" },
+                      { 
+                        text: "Send Invite", 
+                        onPress: async () => {
+                          try {
+                            const configSnap = await getDoc(doc(db, 'app_config', 'global'));
+                            let finalApkUrl = "https://firebasestorage.googleapis.com/v0/b/demitab-500b3.firebasestorage.app/o/DemiTab.apk?alt=media&token=73aba156-2027-42fb-9674-0544133b3f82";
+                            if (configSnap.exists() && configSnap.data().apkUrl) finalApkUrl = configSnap.data().apkUrl;
+                            await Share.share({ message: `Hey! I just added you to "${eventName}" on DemiTab. Download the app to check the receipt and settle up: ${finalApkUrl}` });
+                          } catch(e) {}
+                        }
+                      }
+                    ]
+                  );
+                }
+              }
               setActiveTab('SPLIT BILL');
             }}
           />
@@ -174,32 +172,20 @@ export const EventWorkspace = ({ activeEvent, profile, isDarkMode, toggleTheme, 
   return (
     <View style={[styles.container, themeStyles.background]}>
       <View style={[styles.header, themeStyles.card]}>
-        <TouchableOpacity onPress={onExit} style={styles.backBtn}>
-          <Text style={themeStyles.subText}>← Dashboard</Text>
-        </TouchableOpacity>
+        <TouchableOpacity onPress={onExit} style={styles.backBtn}><Text style={themeStyles.subText}>← Dashboard</Text></TouchableOpacity>
         <Text style={[styles.headerTitle, themeStyles.text]}>{eventData.eventName}</Text>
-        <TouchableOpacity onPress={toggleTheme} style={styles.themeToggle}>
-          <Text>{isDarkMode ? '☀️' : '🌙'}</Text>
-        </TouchableOpacity>
+        <TouchableOpacity onPress={toggleTheme} style={styles.themeToggle}><Text style={{ fontSize: 18 }}>{isDarkMode ? '☀️' : '🌙'}</Text></TouchableOpacity>
       </View>
       <View style={[styles.tabContainer, themeStyles.card]}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabScroll}>
           {tabs.map(tab => (
-            <TouchableOpacity 
-              key={tab} 
-              style={[styles.tab, activeTab === tab && styles.activeTab]} 
-              onPress={() => setActiveTab(tab)}
-            >
-              <Text style={[styles.tabText, activeTab === tab && styles.activeTabText, activeTab === tab && themeStyles.text]}>
-                {tab}
-              </Text>
+            <TouchableOpacity key={tab} style={[styles.tab, activeTab === tab && styles.activeTab]} onPress={() => setActiveTab(tab)}>
+              <Text style={[styles.tabText, activeTab === tab && styles.activeTabText, activeTab === tab && themeStyles.text]}>{tab}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
       </View>
-      <View style={styles.contentContainer}>
-        {renderContent()}
-      </View>
+      <View style={styles.contentContainer}>{renderContent()}</View>
     </View>
   );
 };

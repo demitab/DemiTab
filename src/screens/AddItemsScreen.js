@@ -4,8 +4,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PulseButton } from '../components/PulseButton';
 import { processReceiptImage } from '../services/gemini';
-import { db } from '../services/firebase'; 
-import { doc, updateDoc } from 'firebase/firestore';
+import { db, storage } from '../services/firebase'; 
+import { doc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { getAnalytics, logEvent } from '@react-native-firebase/analytics';
 
 export const AddItemsScreen = ({ eventData, profile, isDarkMode, onSaveItems }) => {
@@ -24,19 +24,13 @@ export const AddItemsScreen = ({ eventData, profile, isDarkMode, onSaveItems }) 
   const syncItemsToDB = async (updatedItems) => {
     setItems(updatedItems); 
     if (eventData.id) {
-      try {
-        const eventRef = doc(db, 'events', eventData.id);
-        await updateDoc(eventRef, { items: updatedItems });
-      } catch (error) {
-        console.error("Live sync failed:", error);
-      }
+      try { await updateDoc(doc(db, 'events', eventData.id), { items: updatedItems }); } 
+      catch (error) { console.error("Live sync failed:", error); }
     }
   };
 
   useEffect(() => {
-    if (eventData.items && eventData.items.length !== items.length) {
-      setItems(eventData.items);
-    }
+    if (eventData.items && eventData.items.length !== items.length) setItems(eventData.items);
   }, [eventData.items]);
 
   const pickImage = async (useCamera) => {
@@ -44,8 +38,7 @@ export const AddItemsScreen = ({ eventData, profile, isDarkMode, onSaveItems }) 
     const permission = useCamera ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) return Alert.alert('Permission required', 'We need access to scan the receipt.');
 
-    // 🚀 FIX: Compression entirely removed. Bill uploads at 100% original quality.
-    const options = { base64: true };
+    const options = { base64: true, quality: 0.4 }; 
     
     const result = useCamera ? await ImagePicker.launchCameraAsync(options) : await ImagePicker.launchImageLibraryAsync(options);
     
@@ -54,25 +47,52 @@ export const AddItemsScreen = ({ eventData, profile, isDarkMode, onSaveItems }) 
       try {
         const text = await processReceiptImage(result.assets[0].base64, 'receipt');
         const lines = text.split('\n');
+        
         const newItems = lines.map(line => {
-          const [name, qty, price] = line.split('|');
-          return { id: Math.random().toString(), name: name?.trim(), qty: parseInt(qty) || 1, price: parseFloat(price) || 0, type: 'food', assignedTo: eventData.members.map(m => m.id), drinkCounts: {} };
+          const [name, qty, price, aiType] = line.split('|');
+          const finalType = aiType?.trim().toLowerCase() === 'drink' ? 'drink' : 'food';
+          
+          return { 
+            id: Math.random().toString(), 
+            name: name?.trim(), 
+            qty: parseInt(qty) || 1, 
+            price: parseFloat(price) || 0, 
+            type: finalType, 
+            assignedTo: finalType === 'food' ? eventData.members.map(m => m.id) : [], 
+            drinkCounts: {} 
+          };
         }).filter(i => i.name);
         
         await logEvent(getAnalytics(), 'receipt_scanned', { item_count: newItems.length });
 
+        // 🚀 FIX: Clean Native Upload (Passes Auth Rules and sets Content-Type)
+        let downloadUrl = null;
+        try {
+          const fileName = `receipts/event_${eventData.id}_${Date.now()}.jpg`;
+          const reference = storage.ref(fileName);
+          
+          // Upload the raw local URI directly, explicitly telling Firebase it's an image
+          await reference.putFile(result.assets[0].uri, {
+            contentType: 'image/jpeg',
+          });
+          
+          downloadUrl = await reference.getDownloadURL();
+        } catch (uploadError) { 
+          console.error(uploadError);
+          Alert.alert("Storage Error!", "Could not save image to Firebase. Error: " + uploadError.message); 
+        }
+
         if (eventData.id) {
-          await updateDoc(doc(db, 'events', eventData.id), { items: [...items, ...newItems] });
+          const updatePayload = { items: [...items, ...newItems] };
+          if (downloadUrl) updatePayload.receiptUrls = arrayUnion(downloadUrl);
+          await updateDoc(doc(db, 'events', eventData.id), updatePayload);
         }
         
         setItems([...items, ...newItems]);
-        Alert.alert('Scan Successful', 'Receipt items added to the list.');
+        Alert.alert('Scan Successful', 'Receipt uploaded and categorized.');
 
-      } catch (e) { 
-        Alert.alert('Gemini Diagnostics', String(e.message));
-      } finally { 
-        setIsScanning(false); 
-      }
+      } catch (e) { Alert.alert('Gemini Diagnostics', String(e.message)); } 
+      finally { setIsScanning(false); }
     }
   };
 
@@ -92,15 +112,6 @@ export const AddItemsScreen = ({ eventData, profile, isDarkMode, onSaveItems }) 
     });
     return names;
   }, [eventData.members]);
-
-  useEffect(() => {
-    let needsUpdate = false;
-    const patchedItems = items.map(item => {
-      if (!item.assignedTo) { needsUpdate = true; return { ...item, assignedTo: eventData.members.map(m => m.id), drinkCounts: {} }; }
-      return item;
-    });
-    if (needsUpdate) syncItemsToDB(patchedItems);
-  }, [items, eventData.members]);
 
   const addOrUpdateItem = () => {
     if (!itemName || !amount) return;
@@ -141,11 +152,11 @@ export const AddItemsScreen = ({ eventData, profile, isDarkMode, onSaveItems }) 
   return (
     <KeyboardAvoidingView style={[styles.container, themeStyles.background, { paddingBottom: insets.bottom + 20 }]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       
-      {isHost && (
+      {isHost ? (
         <>
           <View style={styles.scanWrapper}>
             <PulseButton style={[styles.largeScanBtn, themeStyles.primaryBtn]} onPress={() => pickImage(true)}>
-              <Text style={[styles.largeScanText, themeStyles.primaryBtnText]}>{isScanning ? '⏳ Scanning Receipt...' : '📷 Scan Bill'}</Text>
+              <Text style={[styles.largeScanText, themeStyles.primaryBtnText]}>{isScanning ? '⏳ Scanning & Uploading...' : '📷 Scan Bill'}</Text>
             </PulseButton>
             <TouchableOpacity style={styles.galleryBtn} onPress={() => pickImage(false)}><Text style={[styles.galleryText, themeStyles.linkText]}>or upload from Gallery</Text></TouchableOpacity>
           </View>
@@ -174,7 +185,7 @@ export const AddItemsScreen = ({ eventData, profile, isDarkMode, onSaveItems }) 
             </View>
           </View>
         </>
-      )}
+      ) : null}
 
       <FlatList 
         data={items} 
@@ -239,12 +250,12 @@ export const AddItemsScreen = ({ eventData, profile, isDarkMode, onSaveItems }) 
                 )}
               </View>
               
-              {isHost && (
+              {isHost ? (
                 <View style={[styles.itemFooter, themeStyles.divider]}>
                   <TouchableOpacity onPress={() => editItem(item)} style={styles.actionBtn}><Text style={styles.editText}>✏️ Edit Item</Text></TouchableOpacity>
                   <TouchableOpacity onPress={() => deleteItem(item.id)} style={styles.actionBtn}><Text style={styles.deleteText}>🗑️ Delete</Text></TouchableOpacity>
                 </View>
-              )}
+              ) : null}
             </View>
           )
         }}

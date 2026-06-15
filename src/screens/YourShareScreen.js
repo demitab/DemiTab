@@ -1,5 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Alert, Linking } from 'react-native';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Alert, Linking, Animated } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { FontAwesome } from '@expo/vector-icons';
 import { PulseButton } from '../components/PulseButton';
@@ -11,7 +11,12 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
   const [settleMethod, setSettleMethod] = useState('UPI'); 
   const [paidById, setPaidById] = useState(null); 
   
-  // 🚀 FIX: Token infrastructure restored so the app stays registered, but doesn't spam.
+  // Premium Centered Victory Overlay State
+  const [showVictoryOverlay, setShowVictoryOverlay] = useState(false);
+  const [victoryMessage, setVictoryMessage] = useState('');
+  const [victoryColor, setVictoryColor] = useState('#ffffff');
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+
   const [expoPushToken, setExpoPushToken] = useState('');
 
   const { paymentStrategy, mainPayerId } = eventData;
@@ -71,11 +76,7 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
 
     if (hasSettlements) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-      Alert.alert(
-        'Reset Settlements?',
-        'Switching the payment method will reset all currently settled payments. Do you want to continue?',
-        [ { text: 'Cancel', style: 'cancel' }, { text: 'Yes, Reset', style: 'destructive', onPress: executeChange } ]
-      );
+      Alert.alert('Reset Settlements?', 'Switching the payment method will reset all currently settled payments. Do you want to continue?', [ { text: 'Cancel', style: 'cancel' }, { text: 'Yes, Reset', style: 'destructive', onPress: executeChange } ]);
     } else { executeChange(); }
   };
   
@@ -90,11 +91,23 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
     
     const newSettlements = { ...settlements, [settleModal.member.id]: { amount: settleModal.member.roundedTotal, method: settleMethod, paidBy: settleMethod === 'OTHER' ? paidById : settleModal.member.id } };
     onUpdateData({ settlements: newSettlements });
-
-    // 🚀 FIX: The sendPushNotification trigger has been explicitly deleted here.
-
+    
     setSettleModal({ visible: false, member: null });
-    Alert.alert('Payment Saved', 'The settlement has been successfully recorded.');
+
+    const messages = ["Friendships saved! 🤝", "Debt-free! 🎉", "Universe balanced. 🌌", "Paid like a boss! 🏆"];
+    const colors = ['#F87171', '#FBBF24', '#34D399', '#60A5FA', '#F472B6'];
+    
+    setVictoryMessage(messages[Math.floor(Math.random() * messages.length)]);
+    setVictoryColor(colors[Math.floor(Math.random() * colors.length)]);
+    setShowVictoryOverlay(true);
+    
+    Animated.sequence([
+      Animated.timing(fadeAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
+      Animated.delay(1500),
+      Animated.timing(fadeAnim, { toValue: 0, duration: 300, useNativeDriver: true })
+    ]).start(() => {
+      setShowVictoryOverlay(false);
+    });
   };
 
   const handleUndoSettlement = (memberId) => {
@@ -171,11 +184,7 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
           const isMainPayer = paymentStrategy === 'one_person' && member.id === mainPayerId;
           const isSettled = !!settlements[member.id];
           
-          const canEdit = isHost || 
-                        profile?.id === member.id || 
-                        profile?.uid === member.id || 
-                        (profile?.name && member?.name && profile.name === member.name) || 
-                        (profile?.phone && member?.phone && profile.phone === member.phone);
+          const canEdit = isHost || profile?.id === member.id || profile?.uid === member.id || (profile?.name && member?.name && profile.name === member.name) || (profile?.phone && member?.phone && profile.phone === member.phone);
           
           return (
             <View key={member.id} style={[styles.memberCard, themeStyles.card, (isSettled || isMainPayer) && styles.settledCard]}>
@@ -198,7 +207,9 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
                 </TouchableOpacity>
                 
                 {isMainPayer ? (
-                  <View style={styles.lockedContainer}><Text style={styles.lockedText}>Auto-Settled</Text></View>
+                  <View style={styles.lockedContainer}>
+                    <Text style={styles.lockedText}>Auto-Settled</Text>
+                  </View>
                 ) : isSettled ? (
                    <TouchableOpacity disabled={!canEdit} style={[styles.actionBtn, {backgroundColor: '#FEF2F2', borderColor: '#EF4444'}, !canEdit && {opacity: 0.5}]} onPress={() => handleUndoSettlement(member.id)}>
                      <Text style={[styles.actionBtnText, {color: '#EF4444'}]}>↩️ Undo</Text>
@@ -214,33 +225,102 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
         })}
       </ScrollView>
 
-      {detailsModal.visible && detailsModal.member && (
+      {/* 🚀 FIX: Formatted explicitly to prevent stray string spaces from crashing the Modal */}
+      {detailsModal.visible && detailsModal.member ? (
         <Modal transparent={true} animationType="slide">
           <View style={styles.modalOverlay}>
             <View style={[styles.modalContent, themeStyles.card]}>
               <Text style={[styles.modalTitle, themeStyles.text]}>{detailsModal.member.name}'s Share</Text>
               <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
                 <View style={[styles.ticketContainer, themeStyles.ticketBg]}>
-                  <Text style={[styles.receiptSectionTitle, themeStyles.subText]}>ITEMS</Text>
-                  {detailsModal.member.itemized.map((item, idx) => ( <View key={idx} style={styles.receiptRow}><Text style={[styles.receiptItemName, themeStyles.text]}>{item.name}</Text><Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{item.share.toFixed(2)}</Text></View> ))}
-                  <View style={[styles.ticketDashedDivider, themeStyles.dashedBorder]} />
+                  
+                  {detailsModal.member.itemized.filter(i => i.type === 'food').length > 0 ? (
+                    <View style={styles.categoryBlock}>
+                      <Text style={[styles.receiptSectionTitle, themeStyles.subText]}>🍲 FOOD ITEMS</Text>
+                      {detailsModal.member.itemized.filter(i => i.type === 'food').map((item, idx) => (
+                        <View key={`food-${idx}`} style={styles.receiptRow}>
+                          <Text style={[styles.receiptItemName, themeStyles.text]}>{item.name}</Text>
+                          <Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{item.share.toFixed(2)}</Text>
+                        </View>
+                      ))}
+                      <View style={[styles.ticketDashedDivider, themeStyles.dashedBorder]} />
+                    </View>
+                  ) : null}
+
+                  {detailsModal.member.itemized.filter(i => i.type === 'drink').length > 0 ? (
+                    <View style={styles.categoryBlock}>
+                      <Text style={[styles.receiptSectionTitle, themeStyles.subText]}>🍹 DRINKS (ALCOHOL)</Text>
+                      {detailsModal.member.itemized.filter(i => i.type === 'drink').map((item, idx) => (
+                        <View key={`drink-${idx}`} style={styles.receiptRow}>
+                          <Text style={[styles.receiptItemName, themeStyles.text]}>{item.name}</Text>
+                          <Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{item.share.toFixed(2)}</Text>
+                        </View>
+                      ))}
+                      <View style={[styles.ticketDashedDivider, themeStyles.dashedBorder]} />
+                    </View>
+                  ) : null}
+
                   <Text style={[styles.receiptSectionTitle, themeStyles.subText]}>TAXES & FEES</Text>
-                  {detailsModal.member.taxes.sc > 0.01 && ( <View style={styles.receiptRow}><Text style={[styles.receiptItemName, themeStyles.text]}>Service Charge</Text><Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{detailsModal.member.taxes.sc.toFixed(2)}</Text></View> )}
-                  {detailsModal.member.taxes.cgst > 0.01 && ( <View style={styles.receiptRow}><Text style={[styles.receiptItemName, themeStyles.text]}>CGST</Text><Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{detailsModal.member.taxes.cgst.toFixed(2)}</Text></View> )}
-                  {detailsModal.member.taxes.sgst > 0.01 && ( <View style={styles.receiptRow}><Text style={[styles.receiptItemName, themeStyles.text]}>SGST</Text><Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{detailsModal.member.taxes.sgst.toFixed(2)}</Text></View> )}
-                  {detailsModal.member.taxes.vat > 0.01 && ( <View style={styles.receiptRow}><Text style={[styles.receiptItemName, themeStyles.text]}>VAT</Text><Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{detailsModal.member.taxes.vat.toFixed(2)}</Text></View> )}
-                  {detailsModal.member.fees.convenience > 0 && ( <> <View style={styles.receiptRow}><Text style={[styles.receiptItemName, themeStyles.text]}>Platform Fee</Text><Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{detailsModal.member.fees.convenience.toFixed(2)}</Text></View> <View style={styles.receiptRow}><Text style={[styles.receiptItemName, styles.discountText]}>Trial Offer</Text><Text style={[styles.receiptItemAmount, styles.discountText]}>-₹{detailsModal.member.fees.discount.toFixed(2)}</Text></View> </> )}
+                  
+                  {detailsModal.member.taxes.sc > 0.01 ? (
+                    <View style={styles.receiptRow}>
+                      <Text style={[styles.receiptItemName, themeStyles.text]}>Service Charge</Text>
+                      <Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{detailsModal.member.taxes.sc.toFixed(2)}</Text>
+                    </View>
+                  ) : null}
+
+                  {detailsModal.member.taxes.cgst > 0.01 ? (
+                    <View style={styles.receiptRow}>
+                      <Text style={[styles.receiptItemName, themeStyles.text]}>CGST</Text>
+                      <Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{detailsModal.member.taxes.cgst.toFixed(2)}</Text>
+                    </View>
+                  ) : null}
+
+                  {detailsModal.member.taxes.sgst > 0.01 ? (
+                    <View style={styles.receiptRow}>
+                      <Text style={[styles.receiptItemName, themeStyles.text]}>SGST</Text>
+                      <Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{detailsModal.member.taxes.sgst.toFixed(2)}</Text>
+                    </View>
+                  ) : null}
+
+                  {detailsModal.member.taxes.vat > 0.01 ? (
+                    <View style={styles.receiptRow}>
+                      <Text style={[styles.receiptItemName, themeStyles.text]}>VAT</Text>
+                      <Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{detailsModal.member.taxes.vat.toFixed(2)}</Text>
+                    </View>
+                  ) : null}
+
+                  {detailsModal.member.fees.convenience > 0 ? (
+                    <View>
+                      <View style={styles.receiptRow}>
+                        <Text style={[styles.receiptItemName, themeStyles.text]}>Platform Fee</Text>
+                        <Text style={[styles.receiptItemAmount, themeStyles.text]}>₹{detailsModal.member.fees.convenience.toFixed(2)}</Text>
+                      </View>
+                      <View style={styles.receiptRow}>
+                        <Text style={[styles.receiptItemName, styles.discountText]}>Trial Offer</Text>
+                        <Text style={[styles.receiptItemAmount, styles.discountText]}>-₹{detailsModal.member.fees.discount.toFixed(2)}</Text>
+                      </View>
+                    </View>
+                  ) : null}
+
                   <View style={[styles.ticketDashedDivider, themeStyles.dashedBorder]} />
-                  <View style={styles.receiptRow}><Text style={[styles.receiptTotalLabel, themeStyles.text]}>GRAND TOTAL</Text><Text style={[styles.receiptTotalAmount, themeStyles.text, { color: '#10B981' }]}>₹{detailsModal.member.roundedTotal}</Text></View>
+                  <View style={styles.receiptRow}>
+                    <Text style={[styles.receiptTotalLabel, themeStyles.text]}>GRAND TOTAL</Text>
+                    <Text style={[styles.receiptTotalAmount, themeStyles.text, { color: '#10B981' }]}>₹{detailsModal.member.roundedTotal}</Text>
+                  </View>
                 </View>
               </ScrollView>
-              <View style={styles.modalActions}><TouchableOpacity style={[styles.modalBtnCancel, themeStyles.input]} onPress={() => setDetailsModal({visible: false, member: null})}><Text style={[styles.modalBtnText, themeStyles.text]}>Close</Text></TouchableOpacity></View>
+              <View style={styles.modalActions}>
+                <TouchableOpacity style={[styles.modalBtnCancel, themeStyles.input]} onPress={() => setDetailsModal({visible: false, member: null})}>
+                  <Text style={[styles.modalBtnText, themeStyles.text]}>Close</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         </Modal>
-      )}
+      ) : null}
 
-      {settleModal.visible && settleModal.member && (
+      {settleModal.visible && settleModal.member ? (
         <Modal transparent={true} animationType="fade">
           <View style={styles.modalOverlay}>
             <View style={[styles.modalContent, themeStyles.card]}>
@@ -256,7 +336,7 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
                 ))}
               </View>
 
-              {settleMethod === 'OTHER' && (
+              {settleMethod === 'OTHER' ? (
                 <View style={{marginTop: 20}}>
                   <Text style={[styles.sectionTitle, themeStyles.text]}>Who paid for {settleModal.member.name.split(' ')[0]}?</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -267,22 +347,36 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
                     ))}
                   </ScrollView>
                 </View>
-              )}
+              ) : null}
 
               <View style={[styles.modalActions, {marginTop: 30}]}>
-                <TouchableOpacity style={[styles.modalBtnCancel, themeStyles.input]} onPress={() => setSettleModal({visible: false, member: null})}><Text style={[styles.modalBtnText, themeStyles.text]}>Cancel</Text></TouchableOpacity>
-                <TouchableOpacity style={styles.modalBtnSave} onPress={handleSaveSettlement}><Text style={styles.textWhite}>Save Payment</Text></TouchableOpacity>
+                <TouchableOpacity style={[styles.modalBtnCancel, themeStyles.input]} onPress={() => setSettleModal({visible: false, member: null})}>
+                  <Text style={[styles.modalBtnText, themeStyles.text]}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.modalBtnSave} onPress={handleSaveSettlement}>
+                  <Text style={styles.textWhite}>Save Payment</Text>
+                </TouchableOpacity>
               </View>
             </View>
           </View>
         </Modal>
-      )}
+      ) : null}
 
       <View style={styles.footer}>
         <PulseButton onPress={() => onNext({ paymentStrategy, mainPayerId, memberShares, settlements })} style={styles.finishBtn}>
           <Text style={styles.finishBtnText}>Finish & View Ledger</Text>
         </PulseButton>
       </View>
+
+      {/* Centered, Boxed Victory Message with dynamic borders */}
+      {showVictoryOverlay ? (
+        <Animated.View style={[styles.victoryOverlayContainer, { opacity: fadeAnim }]} pointerEvents="none">
+           <View style={[styles.victoryMessageCard, themeStyles.card, { borderColor: victoryColor }]}>
+              <Text style={[styles.victoryText, { color: victoryColor }]}>{victoryMessage}</Text>
+           </View>
+        </Animated.View>
+      ) : null}
+
     </View>
   );
 };
@@ -323,6 +417,7 @@ const styles = StyleSheet.create({
   modalTitle: { fontSize: 20, fontWeight: '900', textAlign: 'center', marginBottom: 20 }, 
   modalScroll: { marginBottom: 20 }, 
   ticketContainer: { padding: 24, borderRadius: 16, borderWidth: 1, marginBottom: 20 }, 
+  categoryBlock: { marginBottom: 10 },
   ticketDashedDivider: { height: 0, borderBottomWidth: 1, borderStyle: 'dashed', marginVertical: 16 }, 
   receiptSectionTitle: { fontSize: 11, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginTop: 4 }, 
   receiptRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10, alignItems: 'center' }, 
@@ -342,5 +437,8 @@ const styles = StyleSheet.create({
   modalBtnSave: { flex: 1, backgroundColor: '#10B981', paddingVertical: 16, borderRadius: 12, alignItems: 'center' }, 
   footer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: 'transparent' }, 
   finishBtn: { backgroundColor: '#5BC5A7', padding: 18 }, 
-  finishBtnText: { color: '#fff', fontWeight: '900', fontSize: 16, textAlign: 'center' } 
+  finishBtnText: { color: '#fff', fontWeight: '900', fontSize: 16, textAlign: 'center' },
+  victoryOverlayContainer: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.65)', zIndex: 999, padding: 20 },
+  victoryMessageCard: { padding: 30, borderRadius: 24, borderWidth: 2, alignItems: 'center', justifyContent: 'center', width: '90%', shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 8 },
+  victoryText: { fontSize: 26, fontWeight: '900', textAlign: 'center', lineHeight: 36 }
 });

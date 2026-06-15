@@ -1,55 +1,37 @@
-import Constants from 'expo-constants';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const GEMINI_MODEL = 'gemini-3.1-flash-lite';
+const genAI = new GoogleGenerativeAI(process.env.EXPO_PUBLIC_GEMINI_API_KEY);
 
-// 1. Securely fetch the API Key
-export const getGeminiApiKey = () => {
+export const processReceiptImage = async (base64Image, mimeType = 'image/jpeg') => {
   try {
-    const extra = Constants.expoConfig?.extra || Constants.manifest?.extra || {};
-    return (
-      process.env.EXPO_PUBLIC_GEMINI_API_KEY ||
-      extra.EXPO_PUBLIC_GEMINI_API_KEY ||
-      ''
-    );
-  } catch (e) {
-    console.error('Gemini API Key missing:', e);
-    return '';
+    const model = genAI.getGenerativeModel({ model: 'gemini-3.1-flash-lite' });
+
+    const prompt = `
+    Analyze this restaurant/bar receipt and extract all the ordered items.
+    
+    CRITICAL RULE 1: For each item, logically identify if it is 'food' or 'drink'.
+    - ONLY alcoholic beverages (Beer, Whiskey, Vodka, Wine, etc.) are 'drink'.
+    - ALL non-alcoholic beverages (Coke, Water, Mixers) and actual food are 'food'.
+
+    CRITICAL RULE 2: Extract the Price exactly as it is listed for a single unit on the receipt. Do NOT extract the multiplied total.
+
+    Do not include any taxes, service charges, tips, discounts, or grand totals.
+    Output EXACTLY in this format, one item per line, with no headers, no formatting, and no bullets:
+    Item Name|Quantity|Price|Type
+    
+    Example Output:
+    Margherita Pizza|1|450|food
+    Kingfisher Premium|4|350|drink
+    Diet Coke|3|150|food
+    `;
+
+    const imageParts = [{ inlineData: { data: base64Image, mimeType: mimeType === 'receipt' ? 'image/jpeg' : mimeType } }];
+    const result = await model.generateContent([prompt, ...imageParts]);
+    const response = await result.response;
+    return response.text().trim();
+    
+  } catch (error) {
+    console.error('Gemini OCR Error:', error);
+    throw new Error(error.message || 'Failed to parse receipt from the image. Please try again.');
   }
-};
-
-// 2. The core AI processing engine
-export const processReceiptImage = async (base64Data, type) => {
-  const apiKey = getGeminiApiKey();
-  if (!apiKey) throw new Error('Missing Gemini API Key');
-
-  // Strict prompt to ensure clean data extraction
-  const prompt = `Extract the menu items from this ${type} receipt image. Return ONLY plain text. Do NOT use JSON, do not use markdown, and do not add any conversational text. CRITICAL: Preserve all decimal values exactly but REMOVE ALL COMMAS from numerical values (e.g. output 1000.00 instead of 1,000.00). For each item, output exactly one line using this exact pipe-separated format: Name | Quantity | Price | Amount`;
-
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: prompt },
-              { inline_data: { mime_type: 'image/jpeg', data: base64Data } },
-            ],
-          },
-        ],
-      }),
-    }
-  );
-
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error(errText || `Gemini API error ${res.status}`);
-  }
-
-  const json = await res.json();
-  const rawText = json.candidates?.[0]?.content?.parts?.map((p) => p.text).join('') || '';
-  
-  return rawText.replace(/`/g, '').trim();
 };
