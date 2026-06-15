@@ -1,9 +1,12 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView, Platform } from 'react-native';
+import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView, Platform, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { Picker } from '@react-native-picker/picker';
 import { PulseButton } from '../components/PulseButton';
+
+import { doc, setDoc } from 'firebase/firestore'; 
+import { auth, db } from '../services/firebase';
 
 const formatDate = (date) => {
   if (!date) return '';
@@ -14,8 +17,12 @@ const formatDate = (date) => {
 };
 
 export const ProfileScreen = ({ existingProfile, isDarkMode, onComplete, onCancel }) => {
+  const currentUserPhone = auth?.currentUser?.phoneNumber 
+    ? auth.currentUser.phoneNumber.replace('+91', '') 
+    : '';
+
   const initialFormState = existingProfile || {
-    name: '', phone: '', email: '', birthday: '', sex: 'Male', maritalStatus: 'Single', anniversary: '',
+    name: '', phone: currentUserPhone, email: '', birthday: '', sex: 'Male', maritalStatus: 'Single', anniversary: '',
   };
 
   const [form, setForm] = useState(initialFormState);
@@ -56,19 +63,43 @@ export const ProfileScreen = ({ existingProfile, isDarkMode, onComplete, onCance
     }
 
     try {
-      // FIX: Creates a highly secure, unique ID using their exact phone number.
-      // This stops everyone from sharing the generic 'USER_ME' ID.
       const uniqueId = `USER_${digitsOnly}`;
       const userProfile = { id: uniqueId, ...form, phone: digitsOnly };
       
       await AsyncStorage.setItem('demitab_profile', JSON.stringify(userProfile));
+      
+      await setDoc(doc(db, 'users', uniqueId), {
+        ...userProfile,
+        lastUpdated: new Date().toISOString()
+      });
+
       onComplete(userProfile);
     } catch (error) {
       console.error('Failed to save profile', error);
+      alert('Failed to sync profile to the cloud. Please try again.');
     }
   };
 
+  const handleLogout = () => {
+    Alert.alert("Lock Vault", "Are you sure you want to securely log out?", [
+      { text: "Cancel", style: "cancel" },
+      { 
+        text: "Log Out", 
+        style: "destructive", 
+        onPress: async () => {
+          try {
+            await auth.signOut();
+            await AsyncStorage.removeItem('demitab_profile');
+          } catch (err) {
+            console.error("Logout operation aborted unexpectedly", err);
+          }
+        } 
+      }
+    ]);
+  };
+
   const themeStyles = isDarkMode ? darkTheme : lightTheme;
+  const pickerItemColor = isDarkMode ? '#F9FAFB' : '#111827'; 
 
   return (
     <ScrollView contentContainerStyle={[styles.scrollContainer, themeStyles.background]} keyboardShouldPersistTaps="handled">
@@ -82,8 +113,13 @@ export const ProfileScreen = ({ existingProfile, isDarkMode, onComplete, onCance
         <Text style={styles.label}>Email ID *</Text>
         <TextInput style={[styles.input, themeStyles.input]} keyboardType="email-address" autoCapitalize="none" placeholder="e.g. name@example.com" placeholderTextColor={isDarkMode ? '#9CA3AF' : '#6B7280'} value={form.email} onChangeText={(v) => setForm({ ...form, email: v })} />
 
-        <Text style={styles.label}>Phone Number *</Text>
-        <TextInput style={[styles.input, themeStyles.input]} keyboardType="phone-pad" placeholder="e.g. 9876543210" placeholderTextColor={isDarkMode ? '#9CA3AF' : '#6B7280'} value={form.phone} onChangeText={(v) => setForm({ ...form, phone: v })} maxLength={15} />
+        <Text style={styles.label}>Phone Number (Verified) *</Text>
+        <TextInput 
+          style={[styles.input, themeStyles.input, { opacity: 0.6 }]} 
+          keyboardType="phone-pad" 
+          value={form.phone} 
+          editable={false} 
+        />
 
         <View style={styles.row}>
           <View style={styles.flex1}>
@@ -106,9 +142,9 @@ export const ProfileScreen = ({ existingProfile, isDarkMode, onComplete, onCance
             <Text style={styles.label}>Sex</Text>
             <View style={[styles.pickerWrap, themeStyles.input]}>
               <Picker selectedValue={form.sex} onValueChange={(v) => setForm({ ...form, sex: v })} style={themeStyles.pickerText} dropdownIconColor={isDarkMode ? '#fff' : '#000'}>
-                <Picker.Item label="Male" value="Male" color={isDarkMode ? '#fff' : '#000'} />
-                <Picker.Item label="Female" value="Female" color={isDarkMode ? '#fff' : '#000'} />
-                <Picker.Item label="Other" value="Other" color={isDarkMode ? '#fff' : '#000'} />
+                <Picker.Item label="Male" value="Male" color={pickerItemColor} />
+                <Picker.Item label="Female" value="Female" color={pickerItemColor} />
+                <Picker.Item label="Other" value="Other" color={pickerItemColor} />
               </Picker>
             </View>
           </View>
@@ -119,8 +155,8 @@ export const ProfileScreen = ({ existingProfile, isDarkMode, onComplete, onCance
             <Text style={styles.label}>Marital Status</Text>
             <View style={[styles.pickerWrap, themeStyles.input]}>
               <Picker selectedValue={form.maritalStatus} onValueChange={(v) => setForm({ ...form, maritalStatus: v, anniversary: v === 'Single' ? '' : form.anniversary })} style={themeStyles.pickerText} dropdownIconColor={isDarkMode ? '#fff' : '#000'}>
-                <Picker.Item label="Single" value="Single" color={isDarkMode ? '#fff' : '#000'} />
-                <Picker.Item label="Married" value="Married" color={isDarkMode ? '#fff' : '#000'} />
+                <Picker.Item label="Single" value="Single" color={pickerItemColor} />
+                <Picker.Item label="Married" value="Married" color={pickerItemColor} />
               </Picker>
             </View>
           </View>
@@ -152,6 +188,12 @@ export const ProfileScreen = ({ existingProfile, isDarkMode, onComplete, onCance
             <PulseButton onPress={handleSave}><Text style={styles.btnText}>Save Profile</Text></PulseButton>
           </View>
         </View>
+
+        {existingProfile && (
+          <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+            <Text style={styles.logoutBtnText}>🔒 Log Out of Vault</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </ScrollView>
   );
@@ -173,4 +215,6 @@ const styles = StyleSheet.create({
   cancelBtn: { flex: 1, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
   cancelBtnText: { fontWeight: '700', fontSize: 15 },
   btnText: { color: '#fff', fontWeight: '800', fontSize: 16, letterSpacing: 1 },
+  logoutBtn: { marginTop: 40, padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#EF4444', alignItems: 'center', justifyContent: 'center' },
+  logoutBtnText: { color: '#EF4444', fontWeight: '800', fontSize: 15 }
 });

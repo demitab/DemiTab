@@ -1,10 +1,9 @@
-import { getFirestore, doc, setDoc, onSnapshot, collection, query, where, updateDoc, arrayUnion } from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
-import { getAuth, onAuthStateChanged } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
+import { getAuth, onAuthStateChanged } from '@react-native-firebase/auth';
 
-// ⚠️ REPLACE THIS OBJECT WITH YOUR ACTUAL FIREBASE KEYS
 const firebaseConfig = {
-  apiKey: "AIzaSyAdYaTYZ84dGz1yLhd6-49P00-NlOVoQIE",
+  apiKey: "AIzaSyAdYaTYZ84dGz1yLhd6-49P00-NlOVoQIE", 
   authDomain: "demitab-500b3.firebaseapp.com",
   projectId: "demitab-500b3",
   storageBucket: "demitab-500b3.firebasestorage.app",
@@ -13,7 +12,6 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-
-export { auth, db, onAuthStateChanged };
+export const db = getFirestore(app);
+export const auth = getAuth(); 
+export { onAuthStateChanged };

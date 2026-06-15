@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "480525536907",
+    "project_id": "demitab-500b3",
+    "storage_bucket": "demitab-500b3.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:480525536907:android:1ea0aeff92007847c8ce8e",
+        "android_client_info": {
+          "package_name": "com.demifi.DemiTab"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAMVEwle64MdoFIRBWjD9SNBOw21xItpEA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

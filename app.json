@@ -1,41 +1,55 @@
 {
   "expo": {
     "name": "DemiTab",
-    "slug": "DemiTab",
+    "slug": "demitab",
     "version": "1.0.0",
     "orientation": "portrait",
-    "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.demifi.DemiTab",
+      "googleServicesFile": "./GoogleService-Info.plist"
     },
     "android": {
-      "package": "com.demitab.app",
-      "permissions": [
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.READ_CONTACTS",
-        "android.permission.WRITE_CONTACTS"
-      ]
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.demifi.DemiTab",
+      "googleServicesFile": "./google-services.json"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      "expo-notifications",
+      "@react-native-firebase/app",
+      "@react-native-firebase/crashlytics",
       [
-        "expo-camera",
+        "expo-build-properties",
         {
-          "cameraPermission": "Allow DemiTab to access your camera to scan QR codes."
+          "ios": {
+            "useFrameworks": "static"
+          }
         }
       ],
-      [
-        "expo-contacts",
-        {
-          "contactsPermission": "Allow DemiTab to access your contacts to easily add friends."
-        }
-      ],
-      "expo-font"
+      "@react-native-firebase/analytics",
+      "@react-native-firebase/auth"
     ],
     "extra": {
       "eas": {
-        "projectId": "73fa0415-1892-423d-814e-5483d00dce17"
+        "projectId": "adbf0a24-ae19-4977-82dd-4bbdde2f6206"
       }
-    }
+    },
+    "owner": "aki_inc"
   }
 }

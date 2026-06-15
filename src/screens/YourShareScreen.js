@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal, Alert, Lin
 import * as Haptics from 'expo-haptics';
 import { FontAwesome } from '@expo/vector-icons';
 import { PulseButton } from '../components/PulseButton';
-import { registerForPushNotificationsAsync, sendPushNotification } from '../services/notifications';
+import { registerForPushNotificationsAsync } from '../services/notifications';
 
 export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, onNext }) => {
   const [detailsModal, setDetailsModal] = useState({ visible: false, member: null });
@@ -11,6 +11,7 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
   const [settleMethod, setSettleMethod] = useState('UPI'); 
   const [paidById, setPaidById] = useState(null); 
   
+  // 🚀 FIX: Token infrastructure restored so the app stays registered, but doesn't spam.
   const [expoPushToken, setExpoPushToken] = useState('');
 
   const { paymentStrategy, mainPayerId } = eventData;
@@ -89,15 +90,11 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
     
     const newSettlements = { ...settlements, [settleModal.member.id]: { amount: settleModal.member.roundedTotal, method: settleMethod, paidBy: settleMethod === 'OTHER' ? paidById : settleModal.member.id } };
     onUpdateData({ settlements: newSettlements });
-    
-    if (expoPushToken && !isHost) {
-      sendPushNotification(expoPushToken, "Payment Settled 💸", `${profile?.name ? profile.name.split(' ')[0] : 'Someone'} paid their share of ₹${settleModal.member.roundedTotal}!`);
-    }
+
+    // 🚀 FIX: The sendPushNotification trigger has been explicitly deleted here.
 
     setSettleModal({ visible: false, member: null });
-
-    // NEW FIX: Success pop-up added here
-    Alert.alert("Success", "Thank you for Settling the Bill");
+    Alert.alert('Payment Saved', 'The settlement has been successfully recorded.');
   };
 
   const handleUndoSettlement = (memberId) => {
@@ -144,6 +141,7 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
 
   return (
     <View style={[styles.container, themeStyles.background]}>
+      
       <View style={[styles.strategyCard, themeStyles.card]}>
         <Text style={[styles.sectionTitle, themeStyles.text]}>How is the bill being paid?</Text>
         <View style={styles.strategyRow}>
@@ -172,8 +170,12 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
         {memberShares.map(member => {
           const isMainPayer = paymentStrategy === 'one_person' && member.id === mainPayerId;
           const isSettled = !!settlements[member.id];
-          // Restricts Edit/Settle features perfectly
-          const canEdit = isHost || profile?.id === member.id; 
+          
+          const canEdit = isHost || 
+                        profile?.id === member.id || 
+                        profile?.uid === member.id || 
+                        (profile?.name && member?.name && profile.name === member.name) || 
+                        (profile?.phone && member?.phone && profile.phone === member.phone);
           
           return (
             <View key={member.id} style={[styles.memberCard, themeStyles.card, (isSettled || isMainPayer) && styles.settledCard]}>
@@ -202,7 +204,7 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
                      <Text style={[styles.actionBtnText, {color: '#EF4444'}]}>↩️ Undo</Text>
                    </TouchableOpacity>
                 ) : (
-                  <TouchableOpacity disabled={!canEdit} style={[styles.actionBtn, canEdit ? themeStyles.primaryBtn : themeStyles.input]} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setSettleMethod('UPI'); setPaidById(null); setSettleModal({ visible: true, member }); }}>
+                  <TouchableOpacity disabled={!canEdit} style={[styles.actionBtn, canEdit ? themeStyles.primaryBtn : themeStyles.input, !canEdit && {opacity: 0.5}]} onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); setSettleMethod('UPI'); setPaidById(null); setSettleModal({ visible: true, member }); }}>
                     <Text style={[styles.actionBtnText, canEdit ? themeStyles.primaryBtnText : themeStyles.subText]}>💸 Settle</Text>
                   </TouchableOpacity>
                 )}
@@ -288,4 +290,57 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
 const lightTheme = { background: { backgroundColor: '#F9FAFB' }, text: { color: '#111827' }, subText: { color: '#6B7280' }, card: { backgroundColor: '#fff', borderColor: '#E5E7EB' }, divider: { backgroundColor: '#E5E7EB' }, input: { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB' }, primaryBtn: { backgroundColor: '#111827' }, primaryBtnText: { color: '#fff' }, pillBase: { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB' }, ticketBg: { backgroundColor: '#F9FAFB', borderColor: '#E5E7EB' }, dashedBorder: { borderBottomColor: '#D1D5DB' } };
 const darkTheme = { background: { backgroundColor: '#111827' }, text: { color: '#F9FAFB' }, subText: { color: '#9CA3AF' }, card: { backgroundColor: '#1F2937', borderColor: '#374151' }, divider: { backgroundColor: '#374151' }, input: { backgroundColor: '#374151', borderColor: '#4B5563' }, primaryBtn: { backgroundColor: '#F9FAFB' }, primaryBtnText: { color: '#111827' }, pillBase: { backgroundColor: '#374151', borderColor: '#4B5563' }, ticketBg: { backgroundColor: '#374151', borderColor: '#4B5563' }, dashedBorder: { borderBottomColor: '#6B7280' } };
 
-const styles = StyleSheet.create({ container: { flex: 1 }, scrollList: { padding: 20, paddingBottom: 100 }, strategyCard: { padding: 20, borderBottomWidth: 1 }, sectionTitle: { fontSize: 14, fontWeight: '800', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }, strategyRow: { flexDirection: 'row', gap: 10 }, strategyBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, borderWidth: 1, alignItems: 'center' }, strategyActive: { backgroundColor: '#5BC5A7', borderColor: '#5BC5A7' }, strategyText: { fontWeight: '700', fontSize: 14 }, strategyTextActive: { color: '#fff', fontWeight: '900' }, payerSelectContainer: { marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' }, payerPill: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, borderWidth: 1, marginRight: 8 }, payerPillActive: { backgroundColor: '#111827', borderColor: '#111827' }, payerPillText: { fontWeight: '600', fontSize: 14 }, payerPillTextActive: { color: '#fff', fontWeight: '800' }, memberCard: { padding: 16, borderRadius: 16, borderWidth: 1, marginBottom: 12 }, settledCard: { borderColor: '#10B981', backgroundColor: 'rgba(16, 185, 129, 0.05)' }, memberCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }, memberName: { fontSize: 18, fontWeight: '800' }, settledBadge: { color: '#10B981', fontSize: 10, fontWeight: '900', marginTop: 2, letterSpacing: 1 }, memberTotal: { fontSize: 24, fontWeight: '900' }, actionRow: { flexDirection: 'row', gap: 10 }, actionBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, borderWidth: 1, alignItems: 'center' }, actionBtnText: { fontWeight: '800', fontSize: 14 }, textWhite: { color: '#fff', fontWeight: '800' }, discountText: { color: '#10B981', fontWeight: '800' }, lockedContainer: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' }, lockedText: { color: '#10B981', fontWeight: '800', fontSize: 14, marginRight: 10 }, modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' }, modalContent: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '85%' }, modalTitle: { fontSize: 20, fontWeight: '900', textAlign: 'center', marginBottom: 20 }, modalScroll: { marginBottom: 20 }, ticketContainer: { padding: 24, borderRadius: 16, borderWidth: 1, marginBottom: 20 }, ticketDashedDivider: { height: 0, borderBottomWidth: 1, borderStyle: 'dashed', marginVertical: 16 }, receiptSectionTitle: { fontSize: 11, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginTop: 4 }, receiptRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10, alignItems: 'center' }, receiptItemName: { fontSize: 15, fontWeight: '600', flex: 1, paddingRight: 15 }, receiptItemAmount: { fontSize: 15, fontWeight: '800' }, receiptTotalLabel: { fontSize: 16, fontWeight: '900' }, receiptTotalAmount: { fontSize: 32, fontWeight: '900' }, settleAmountHuge: { fontSize: 48, fontWeight: '900', textAlign: 'center', marginVertical: 10 }, methodGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 }, methodBtn: { flexBasis: '48%', paddingVertical: 16, borderRadius: 12, borderWidth: 1, alignItems: 'center' }, methodBtnActive: { backgroundColor: '#3B82F6', borderColor: '#3B82F6' }, methodBtnText: { fontWeight: '800', fontSize: 14 }, paidByContainer: { marginTop: 20 }, modalActions: { flexDirection: 'row', gap: 12 }, modalBtnCancel: { flex: 1, paddingVertical: 16, borderRadius: 12, alignItems: 'center', borderWidth: 1 }, modalBtnText: { fontWeight: '800', fontSize: 16 }, modalBtnSave: { flex: 1, backgroundColor: '#10B981', paddingVertical: 16, borderRadius: 12, alignItems: 'center' }, footer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: 'transparent' }, finishBtn: { backgroundColor: '#5BC5A7', padding: 18 }, finishBtnText: { color: '#fff', fontWeight: '900', fontSize: 16, textAlign: 'center' } });
+const styles = StyleSheet.create({ 
+  container: { flex: 1 }, 
+  scrollList: { padding: 20, paddingBottom: 100 }, 
+  strategyCard: { padding: 20, borderBottomWidth: 1 }, 
+  sectionTitle: { fontSize: 14, fontWeight: '800', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }, 
+  strategyRow: { flexDirection: 'row', gap: 10 }, 
+  strategyBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, borderWidth: 1, alignItems: 'center' }, 
+  strategyActive: { backgroundColor: '#5BC5A7', borderColor: '#5BC5A7' }, 
+  strategyText: { fontWeight: '700', fontSize: 14 }, 
+  strategyTextActive: { color: '#fff', fontWeight: '900' }, 
+  payerSelectContainer: { marginTop: 16, paddingTop: 16, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' }, 
+  payerPill: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, borderWidth: 1, marginRight: 8 }, 
+  payerPillActive: { backgroundColor: '#111827', borderColor: '#111827' }, 
+  payerPillText: { fontWeight: '600', fontSize: 14 }, 
+  payerPillTextActive: { color: '#fff', fontWeight: '800' }, 
+  memberCard: { padding: 16, borderRadius: 16, borderWidth: 1, marginBottom: 12 }, 
+  settledCard: { borderColor: '#10B981', backgroundColor: 'rgba(16, 185, 129, 0.05)' }, 
+  memberCardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }, 
+  memberName: { fontSize: 18, fontWeight: '800' }, 
+  settledBadge: { color: '#10B981', fontSize: 10, fontWeight: '900', marginTop: 2, letterSpacing: 1 }, 
+  memberTotal: { fontSize: 24, fontWeight: '900' }, 
+  actionRow: { flexDirection: 'row', gap: 10 }, 
+  actionBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, borderWidth: 1, alignItems: 'center' }, 
+  actionBtnText: { fontWeight: '800', fontSize: 14 }, 
+  textWhite: { color: '#fff', fontWeight: '800' }, 
+  discountText: { color: '#10B981', fontWeight: '800' }, 
+  lockedContainer: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' }, 
+  lockedText: { color: '#10B981', fontWeight: '800', fontSize: 14, marginRight: 10 }, 
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' }, 
+  modalContent: { borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '85%' }, 
+  modalTitle: { fontSize: 20, fontWeight: '900', textAlign: 'center', marginBottom: 20 }, 
+  modalScroll: { marginBottom: 20 }, 
+  ticketContainer: { padding: 24, borderRadius: 16, borderWidth: 1, marginBottom: 20 }, 
+  ticketDashedDivider: { height: 0, borderBottomWidth: 1, borderStyle: 'dashed', marginVertical: 16 }, 
+  receiptSectionTitle: { fontSize: 11, fontWeight: '800', letterSpacing: 1, marginBottom: 12, marginTop: 4 }, 
+  receiptRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10, alignItems: 'center' }, 
+  receiptItemName: { fontSize: 15, fontWeight: '600', flex: 1, paddingRight: 15 }, 
+  receiptItemAmount: { fontSize: 15, fontWeight: '800' }, 
+  receiptTotalLabel: { fontSize: 16, fontWeight: '900' }, 
+  receiptTotalAmount: { fontSize: 32, fontWeight: '900' }, 
+  settleAmountHuge: { fontSize: 48, fontWeight: '900', textAlign: 'center', marginVertical: 10 }, 
+  methodGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 }, 
+  methodBtn: { flexBasis: '48%', paddingVertical: 16, borderRadius: 12, borderWidth: 1, alignItems: 'center' }, 
+  methodBtnActive: { backgroundColor: '#3B82F6', borderColor: '#3B82F6' }, 
+  methodBtnText: { fontWeight: '800', fontSize: 14 }, 
+  paidByContainer: { marginTop: 20 }, 
+  modalActions: { flexDirection: 'row', gap: 12 }, 
+  modalBtnCancel: { flex: 1, paddingVertical: 16, borderRadius: 12, alignItems: 'center', borderWidth: 1 }, 
+  modalBtnText: { fontWeight: '800', fontSize: 16 }, 
+  modalBtnSave: { flex: 1, backgroundColor: '#10B981', paddingVertical: 16, borderRadius: 12, alignItems: 'center' }, 
+  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: 'transparent' }, 
+  finishBtn: { backgroundColor: '#5BC5A7', padding: 18 }, 
+  finishBtnText: { color: '#fff', fontWeight: '900', fontSize: 16, textAlign: 'center' } 
+});
