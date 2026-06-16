@@ -5,6 +5,8 @@ import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
 import ConfettiCannon from 'react-native-confetti-cannon';
 import { PulseButton } from '../components/PulseButton';
+import { updateDoc, doc, increment, arrayUnion } from 'firebase/firestore';
+import { db, auth } from '../services/firebase';
 
 export const LedgerScreen = ({ eventData, isDarkMode, onExit }) => {
   const themeStyles = isDarkMode ? darkTheme : lightTheme;
@@ -54,6 +56,45 @@ export const LedgerScreen = ({ eventData, isDarkMode, onExit }) => {
       return { ...member, roundedTotal: Math.round(rawTotal) };
     });
   }, [eventData.items, eventData.members, eventData.taxes]);
+
+  useEffect(() => {
+    const processRefunds = async () => {
+      if (eventData.refundsProcessed) return;
+
+      const currentUserId = auth?.currentUser?.phoneNumber 
+        ? `USER_${auth.currentUser.phoneNumber.replace(/\D/g, '').slice(-10)}` 
+        : null;
+        
+      if (currentUserId !== eventData.hostId) return;
+
+      const guestsWithZero = memberShares.filter(m => m.id !== eventData.hostId && m.roundedTotal === 0 && m.id.startsWith('USER_'));
+      
+      if (guestsWithZero.length > 0) {
+        try {
+          for (const guest of guestsWithZero) {
+            await updateDoc(doc(db, 'users', guest.id), { 
+              hostCredits: increment(1),
+              creditHistory: arrayUnion({
+                id: Date.now().toString(),
+                title: 'Refund (₹0 Share)',
+                amount: 1,
+                date: new Date().toLocaleDateString('en-GB')
+              })
+            });
+          }
+        } catch(e) { console.error('Refund failed:', e); }
+      }
+      
+      if (eventData.id) {
+        try { await updateDoc(doc(db, 'events', eventData.id), { refundsProcessed: true }); } 
+        catch(e) {}
+      }
+    };
+
+    if (memberShares.length > 0) {
+      processRefunds();
+    }
+  }, [memberShares, eventData.id, eventData.hostId, eventData.refundsProcessed]);
 
   const paymentStrategy = eventData.paymentStrategy || 'everyone';
   const mainPayerId = eventData.mainPayerId;

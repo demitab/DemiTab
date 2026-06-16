@@ -1,14 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, StatusBar, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { doc, setDoc } from 'firebase/firestore'; 
+import { doc, setDoc, onSnapshot } from 'firebase/firestore'; 
 import { auth, db, onAuthStateChanged } from './src/services/firebase'; 
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
-// 🚀 FIX: Upgraded to Firebase V24 Modular API
 import { getAnalytics, logEvent, setUserId as setAnalyticsUserId } from '@react-native-firebase/analytics';
 import { getCrashlytics, log, setUserId as setCrashlyticsUserId, recordError } from '@react-native-firebase/crashlytics';
 
@@ -39,7 +38,6 @@ export default function App() {
       if (user) {
         try {
           const userId = user.phoneNumber || user.uid;
-          // 🚀 FIX: Modular API Tracking Assignment
           await Promise.all([
             setCrashlyticsUserId(getCrashlytics(), userId),
             setAnalyticsUserId(getAnalytics(), userId)
@@ -56,8 +54,6 @@ export default function App() {
         if (savedProfile) setProfile(JSON.parse(savedProfile));
         const savedTheme = await AsyncStorage.getItem('demitab_theme');
         if (savedTheme === 'dark') setIsDarkMode(true);
-        
-        // 🚀 FIX: Modular Crashlytics Log
         log(getCrashlytics(), 'App successfully booted.');
       } catch (e) { 
         console.error(e); 
@@ -70,6 +66,31 @@ export default function App() {
 
     return unsubscribe;
   }, []);
+
+  // 🚀 LIVE BACKEND SYNC: Listens to Firestore changes (like manual credit modifications or sales)
+  useEffect(() => {
+    if (!firebaseUser) {
+      return;
+    }
+    const digitsOnly = firebaseUser.phoneNumber 
+      ? firebaseUser.phoneNumber.replace('+91', '').replace(/\D/g, '').slice(-10) 
+      : null;
+    
+    if (!digitsOnly) return;
+
+    const userRef = doc(db, 'users', `USER_${digitsOnly}`);
+    const unsubscribeLiveProfile = onSnapshot(userRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const cloudProfile = docSnap.data();
+        setProfile(cloudProfile);
+        AsyncStorage.setItem('demitab_profile', JSON.stringify(cloudProfile));
+      }
+    }, (err) => {
+      console.log("Live synchronization error:", err);
+    });
+
+    return () => unsubscribeLiveProfile();
+  }, [firebaseUser]);
 
   const toggleTheme = async () => {
     const newTheme = !isDarkMode;
@@ -85,7 +106,6 @@ export default function App() {
           <Text style={styles.logoText}>DemiTab</Text>
         </View>
         <Text style={styles.tagline}>Split Bills, Stay Friends.</Text>
-        {/* 🚀 FIX: Strict Ternary to prevent <Text> Crash */}
         {isLoading ? <ActivityIndicator size="small" color="#5BC5A7" style={{marginTop: 20}} /> : null}
       </View>
     );
@@ -134,11 +154,9 @@ export default function App() {
 
               try {
                 await setDoc(doc(db, 'events', newEventId), newEvent);
-                // 🚀 FIX: Modular Analytics Log
                 await logEvent(getAnalytics(), 'create_event', { event_name: name });
                 props.navigation.navigate('EventWorkspace', { activeEvent: newEvent });
               } catch (error) {
-                // 🚀 FIX: Modular Crashlytics Error
                 recordError(getCrashlytics(), error);
                 console.error("Error creating event in cloud", error);
               }
@@ -164,8 +182,8 @@ export default function App() {
       </Tab.Screen>
 
       <Tab.Screen 
-        name="Profile" 
-        options={{ tabBarIcon: () => <Text style={{fontSize: 20}}>⚙️</Text> }}
+        name="Account" 
+        options={{ tabBarIcon: () => <Text style={{fontSize: 20}}>👤</Text> }}
       >
         {props => (
           <ProfileScreen 
@@ -196,7 +214,6 @@ export default function App() {
             const currentRouteName = navigationRef.getCurrentRoute()?.name;
 
             if (previousRouteName !== currentRouteName) {
-              // 🚀 FIX: Modular Screen View Event
               await logEvent(getAnalytics(), 'screen_view', {
                 screen_name: currentRouteName,
                 screen_class: currentRouteName,

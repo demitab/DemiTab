@@ -5,7 +5,7 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { PulseButton } from '../components/PulseButton';
 
 import { InsightsSection } from '../components/InsightsSection';
-import { collection, query, where, onSnapshot, doc, updateDoc, arrayUnion, or, deleteDoc, arrayRemove, getDoc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, doc, updateDoc, arrayUnion, or, deleteDoc, arrayRemove, getDoc, increment } from 'firebase/firestore';
 import { db } from '../services/firebase';
 
 export const DashboardScreen = ({ profile, isDarkMode, toggleTheme, onOpenEvent, onCreateEvent, navigation }) => {
@@ -49,6 +49,11 @@ export const DashboardScreen = ({ profile, isDarkMode, toggleTheme, onOpenEvent,
 
   const handleBarCodeScanned = async ({ type, data }) => {
     setIsScanning(false);
+    
+    if (profile?.hostCredits !== undefined && profile.hostCredits <= 0) {
+      return Alert.alert("Limit Reached", "You have used all your free capabilities! Ask a friend for their referral code to get 5 more credits.");
+    }
+
     if (data.startsWith('demitab:event:')) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       const eventId = data.replace('demitab:event:', '');
@@ -62,15 +67,31 @@ export const DashboardScreen = ({ profile, isDarkMode, toggleTheme, onOpenEvent,
           const existingIndex = existingMembers.findIndex(m => m.phone && m.phone.replace(/\D/g, '').slice(-10) === myPhone10);
           
           let updatedMembers = [...existingMembers];
+          let isNewMember = false;
+
           if (existingIndex >= 0) {
             updatedMembers[existingIndex].id = profile.id;
             updatedMembers[existingIndex].name = localName || updatedMembers[existingIndex].name;
             updatedMembers[existingIndex].phone = profile?.phone || updatedMembers[existingIndex].phone;
           } else {
             updatedMembers.push({ id: profile.id, name: localName || 'Friend', phone: profile?.phone || '' });
+            isNewMember = true;
           }
 
           await updateDoc(eventRef, { memberIds: arrayUnion(profile.id), memberPhones: myPhone10 ? arrayUnion(myPhone10) : arrayUnion(), members: updatedMembers });
+          
+          if (isNewMember && profile?.id) {
+            await updateDoc(doc(db, 'users', profile.id), { 
+              hostCredits: increment(-1),
+              creditHistory: arrayUnion({
+                id: Date.now().toString(),
+                title: `Joined: ${evData.eventName}`, // Includes Event Name
+                amount: -1,
+                date: new Date().toLocaleDateString('en-GB')
+              })
+            });
+          }
+
           Alert.alert("Success!", "You have joined the live event.");
         } else Alert.alert("Error", "Event not found in the database.");
       } catch (error) { Alert.alert("Error", "Could not join the cloud event."); }
@@ -82,7 +103,31 @@ export const DashboardScreen = ({ profile, isDarkMode, toggleTheme, onOpenEvent,
 
   const handleCreateEvent = async () => {
     if (!newEventName.trim()) return Alert.alert("Name Required", "Please add the name of the event first.");
+    
+    if (profile?.hostCredits !== undefined && profile.hostCredits <= 0) {
+      return Alert.alert(
+        "Limit Reached", 
+        "You have used all 5 of your free Capabilities! Ask a friend for their referral code so you both receive 5 more credits."
+      );
+    }
+
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    
+    if (profile?.id) {
+      try { 
+        await updateDoc(doc(db, 'users', profile.id), { 
+          hostCredits: increment(-1),
+          creditHistory: arrayUnion({
+            id: Date.now().toString(),
+            title: `Created: ${newEventName.trim()}`, // Includes Event Name
+            amount: -1,
+            date: new Date().toLocaleDateString('en-GB')
+          })
+        }); 
+      } 
+      catch (e) { console.error(e); }
+    }
+
     if (onCreateEvent) onCreateEvent(newEventName.trim());
     else onOpenEvent(null);
     setNewEventName('');
@@ -105,16 +150,19 @@ export const DashboardScreen = ({ profile, isDarkMode, toggleTheme, onOpenEvent,
     ]);
   };
 
-  // 🚀 FIX: Global App Share Function
   const handleShareApp = async () => {
     Haptics.selectionAsync();
     try {
       const configSnap = await getDoc(doc(db, 'app_config', 'global'));
-      let finalApkUrl = "https://firebasestorage.googleapis.com/v0/b/demitab-500b3.firebasestorage.app/o/DemiTab.apk?alt=media&token=73aba156-2027-42fb-9674-0544133b3f82";
-      if (configSnap.exists() && configSnap.data().apkUrl) {
-        finalApkUrl = configSnap.data().apkUrl;
+      let adminUrl = "https://demitab-admin.vercel.app";
+      if (configSnap.exists() && configSnap.data().adminAppUrl) {
+        adminUrl = configSnap.data().adminAppUrl;
       }
-      await Share.share({ message: `Hey! I use DemiTab to scan receipts and split bills effortlessly. Download it here to join my group: ${finalApkUrl}` });
+      
+      const inviteLink = `${adminUrl}/invite?ref=${profile?.referralCode || ''}`;
+      const referralMsg = profile?.referralCode ? ` Use my code ${profile.referralCode} to get 5 free bonus capabilities!` : '';
+      
+      await Share.share({ message: `Hey! I use DemiTab to scan receipts and split bills effortlessly.${referralMsg} Tap here to download: ${inviteLink}` });
     } catch(e) { console.log(e); }
   };
 
@@ -123,6 +171,7 @@ export const DashboardScreen = ({ profile, isDarkMode, toggleTheme, onOpenEvent,
       <View style={[styles.header, themeStyles.card]}>
         <View style={styles.headerLeft}>
           <Text style={[styles.greeting, themeStyles.text]}>Hello, {localName ? localName.split(' ')[0] : 'User'} 👋</Text>
+          <Text style={[styles.creditsSubtext, themeStyles.subText]}>🪙 {profile?.hostCredits ?? 0} Credits Remaining</Text>
         </View>
         <View style={styles.headerRight}>
           <TouchableOpacity style={[styles.actionIconBtn, themeStyles.iconBtnBg]} onPress={handleShareApp}>
@@ -214,20 +263,14 @@ export const DashboardScreen = ({ profile, isDarkMode, toggleTheme, onOpenEvent,
 };
 
 const lightTheme = { 
-  background: { backgroundColor: '#F9FAFB' }, 
-  text: { color: '#111827' }, 
-  subText: { color: '#6B7280' }, 
-  card: { backgroundColor: '#fff', borderColor: '#E5E7EB' }, 
-  input: { backgroundColor: '#F3F4F6' },
+  background: { backgroundColor: '#F9FAFB' }, text: { color: '#111827' }, subText: { color: '#6B7280' }, 
+  card: { backgroundColor: '#fff', borderColor: '#E5E7EB' }, input: { backgroundColor: '#F3F4F6' },
   iconBtnBg: { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB' }
 };
 
 const darkTheme = { 
-  background: { backgroundColor: '#111827' }, 
-  text: { color: '#F9FAFB' }, 
-  subText: { color: '#9CA3AF' }, 
-  card: { backgroundColor: '#1F2937', borderColor: '#374151' }, 
-  input: { backgroundColor: '#374151' },
+  background: { backgroundColor: '#111827' }, text: { color: '#F9FAFB' }, subText: { color: '#9CA3AF' }, 
+  card: { backgroundColor: '#1F2937', borderColor: '#374151' }, input: { backgroundColor: '#374151' },
   iconBtnBg: { backgroundColor: '#374151', borderColor: '#4B5563' }
 };
 
@@ -236,6 +279,7 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 24, paddingTop: 60, borderBottomWidth: 1, borderBottomLeftRadius: 24, borderBottomRightRadius: 24 }, 
   headerLeft: { flex: 1 }, 
   greeting: { fontSize: 24, fontWeight: '900'}, 
+  creditsSubtext: { fontSize: 15, fontWeight: '700', marginTop: 2 },
   headerRight: { flexDirection: 'row', gap: 10 },
   actionIconBtn: { padding: 10, borderRadius: 20, borderWidth: 1 }, 
   listContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 150 }, 

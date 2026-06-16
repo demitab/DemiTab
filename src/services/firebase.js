@@ -1,7 +1,9 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
-import nativeAuth from '@react-native-firebase/auth';
-import nativeStorage from '@react-native-firebase/storage'; // 🚀 NEW: Native Storage
+
+// Import Native Modular functions to kill the yellow warnings
+import { getAuth, onAuthStateChanged as nativeOnAuthStateChanged } from '@react-native-firebase/auth';
+import { getStorage } from '@react-native-firebase/storage';
 
 const firebaseConfig = {
   apiKey: "AIzaSyAdYaTYZ84dGz1yLhd6-49P00-NlOVoQIE", 
@@ -12,9 +14,13 @@ const firebaseConfig = {
   appId: "1:480525536907:web:be6f58b198817181c8ce8e"
 };
 
+// 1. Initialize Web SDK for Firestore (Keeps all your screens working)
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
-export const auth = nativeAuth(); 
-export const storage = nativeStorage(); // 🚀 Exporting Native Storage
 
-export const onAuthStateChanged = (authInstance, callback) => authInstance.onAuthStateChanged(callback);
+// 2. Initialize Native SDK for Auth & Storage (For SMS and Image Uploads)
+export const auth = getAuth(); 
+export const storage = getStorage();
+
+// 3. Export a clean modular auth listener
+export const onAuthStateChanged = (authInstance, callback) => nativeOnAuthStateChanged(authInstance, callback);
