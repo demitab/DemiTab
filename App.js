@@ -2,19 +2,35 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, StatusBar, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { doc, setDoc, onSnapshot } from 'firebase/firestore'; 
-import { auth, db, onAuthStateChanged } from './src/services/firebase'; 
+import { auth, db, onAuthStateChanged, webAuthReady } from './src/services/firebase'; 
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
+// 👇 FIXED: Restored the modern Modular v22 imports
 import { getAnalytics, logEvent, setUserId as setAnalyticsUserId } from '@react-native-firebase/analytics';
 import { getCrashlytics, log, setUserId as setCrashlyticsUserId, recordError } from '@react-native-firebase/crashlytics';
 
 import { AuthScreen } from './src/screens/AuthScreen';
-import { ProfileScreen } from './src/screens/ProfileScreen';
-import { DashboardScreen } from './src/screens/DashboardScreen';
 import { EventWorkspace } from './src/screens/EventWorkspace';
+import { DashboardScreen } from './src/screens/DashboardScreen'; 
+import { ProfileScreen } from './src/screens/ProfileScreen'; 
+
+import { getApp } from '@react-native-firebase/app';
+import { initializeAppCheck, ReactNativeFirebaseAppCheckProvider } from '@react-native-firebase/app-check';
+
+const rnfbProvider = new ReactNativeFirebaseAppCheckProvider();
+rnfbProvider.configure({
+  android: {
+    provider: __DEV__ ? 'debug' : 'playIntegrity',
+  },
+});
+
+initializeAppCheck(getApp(), {
+  provider: rnfbProvider,
+  isTokenAutoRefreshEnabled: true,
+});
 
 const DEV_BYPASS_AUTH = false; 
 
@@ -38,6 +54,7 @@ export default function App() {
       if (user) {
         try {
           const userId = user.phoneNumber || user.uid;
+          // 👇 FIXED: Modern modular syntax
           await Promise.all([
             setCrashlyticsUserId(getCrashlytics(), userId),
             setAnalyticsUserId(getAnalytics(), userId)
@@ -54,6 +71,8 @@ export default function App() {
         if (savedProfile) setProfile(JSON.parse(savedProfile));
         const savedTheme = await AsyncStorage.getItem('demitab_theme');
         if (savedTheme === 'dark') setIsDarkMode(true);
+        
+        // 👇 FIXED: Modern modular syntax
         log(getCrashlytics(), 'App successfully booted.');
       } catch (e) { 
         console.error(e); 
@@ -67,29 +86,37 @@ export default function App() {
     return unsubscribe;
   }, []);
 
-  // 🚀 LIVE BACKEND SYNC: Listens to Firestore changes (like manual credit modifications or sales)
   useEffect(() => {
-    if (!firebaseUser) {
-      return;
-    }
+    if (!firebaseUser) return;
+
     const digitsOnly = firebaseUser.phoneNumber 
       ? firebaseUser.phoneNumber.replace('+91', '').replace(/\D/g, '').slice(-10) 
       : null;
     
     if (!digitsOnly) return;
 
-    const userRef = doc(db, 'users', `USER_${digitsOnly}`);
-    const unsubscribeLiveProfile = onSnapshot(userRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const cloudProfile = docSnap.data();
-        setProfile(cloudProfile);
-        AsyncStorage.setItem('demitab_profile', JSON.stringify(cloudProfile));
-      }
-    }, (err) => {
-      console.log("Live synchronization error:", err);
+    let unsubscribeLiveProfile = () => {};
+    let isMounted = true;
+
+    webAuthReady.then(() => {
+      if (!isMounted) return;
+      
+      const userRef = doc(db, 'users', `USER_${digitsOnly}`);
+      unsubscribeLiveProfile = onSnapshot(userRef, (docSnap) => {
+        if (docSnap.exists()) {
+          const cloudProfile = docSnap.data();
+          setProfile(cloudProfile);
+          AsyncStorage.setItem('demitab_profile', JSON.stringify(cloudProfile));
+        }
+      }, (err) => {
+        console.log("Live synchronization error:", err);
+      });
     });
 
-    return () => unsubscribeLiveProfile();
+    return () => {
+      isMounted = false;
+      unsubscribeLiveProfile();
+    };
   }, [firebaseUser]);
 
   const toggleTheme = async () => {
@@ -154,9 +181,13 @@ export default function App() {
 
               try {
                 await setDoc(doc(db, 'events', newEventId), newEvent);
+                
+                // 👇 FIXED: Modern modular syntax
                 await logEvent(getAnalytics(), 'create_event', { event_name: name });
+                
                 props.navigation.navigate('EventWorkspace', { activeEvent: newEvent });
               } catch (error) {
+                // 👇 FIXED: Modern modular syntax
                 recordError(getCrashlytics(), error);
                 console.error("Error creating event in cloud", error);
               }
@@ -170,11 +201,11 @@ export default function App() {
 
       <Tab.Screen 
         name="Global Ledger" 
-        options={{ tabBarIcon: () => <Text style={{fontSize: 20}}>🤝</Text> }}
+        options={{ tabBarIcon: () => <Text style={{fontSize: 20}}>📒</Text> }}
       >
         {() => (
           <View style={[styles.container, { justifyContent: 'center', alignItems: 'center', backgroundColor: isDarkMode ? '#111827' : '#F9FAFB' }]}>
-            <Text style={{fontSize: 60, marginBottom: 20}}>📊</Text>
+            <Text style={{fontSize: 60, marginBottom: 20}}>🚧</Text>
             <Text style={{color: isDarkMode ? '#fff' : '#111827', fontSize: 20, fontWeight: '900'}}>Global Ledger</Text>
             <Text style={{color: '#6B7280', marginTop: 10, fontWeight: '600'}}>Coming right up! 🚀</Text>
           </View>

@@ -2,7 +2,7 @@
   "expo": {
     "name": "DemiTab",
     "slug": "demitab",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -25,6 +25,7 @@
         "backgroundColor": "#ffffff"
       },
       "package": "com.demifi.DemiTab",
+      "versionCode": 2,
       "googleServicesFile": "./google-services.json"
     },
     "web": {
@@ -42,13 +43,13 @@
             "useFrameworks": "static"
           },
           "android": {
-            "enableProguardInReleaseBuilds": true,
-            "enableShrinkResourcesInReleaseBuilds": true
+            "enableProguardInReleaseBuilds": true
           }
         }
       ],
       "@react-native-firebase/analytics",
-      "@react-native-firebase/auth"
+      "@react-native-firebase/auth",
+      "@react-native-firebase/app-check"
     ],
     "extra": {
       "eas": {

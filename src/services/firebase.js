@@ -1,26 +1,39 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
+import { initializeAuth, signInAnonymously, onAuthStateChanged as webOnAuthStateChanged, getReactNativePersistence } from 'firebase/auth';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Import Native Modular functions to kill the yellow warnings
 import { getAuth, onAuthStateChanged as nativeOnAuthStateChanged } from '@react-native-firebase/auth';
 import { getStorage } from '@react-native-firebase/storage';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAdYaTYZ84dGz1yLhd6-49P00-NlOVoQIE", 
-  authDomain: "demitab-500b3.firebaseapp.com",
-  projectId: "demitab-500b3",
-  storageBucket: "demitab-500b3.firebasestorage.app",
-  messagingSenderId: "480525536907",
-  appId: "1:480525536907:web:be6f58b198817181c8ce8e"
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY, 
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID
 };
 
-// 1. Initialize Web SDK for Firestore (Keeps all your screens working)
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 
-// 2. Initialize Native SDK for Auth & Storage (For SMS and Image Uploads)
+// 👇 FIXED: We are now explicitly telling Web Auth to use AsyncStorage
+const webAuth = initializeAuth(app, {
+  persistence: getReactNativePersistence(AsyncStorage)
+});
+
+export const webAuthReady = new Promise((resolve) => {
+  const unsubscribe = webOnAuthStateChanged(webAuth, (user) => {
+    if (user) {
+      unsubscribe();
+      resolve(true);
+    }
+  });
+  signInAnonymously(webAuth).catch((err) => console.log("Bridge Auth Error:", err));
+});
+
 export const auth = getAuth(); 
 export const storage = getStorage();
 
-// 3. Export a clean modular auth listener
 export const onAuthStateChanged = (authInstance, callback) => nativeOnAuthStateChanged(authInstance, callback);

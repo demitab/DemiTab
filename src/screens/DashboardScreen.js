@@ -50,8 +50,9 @@ export const DashboardScreen = ({ profile, isDarkMode, toggleTheme, onOpenEvent,
   const handleBarCodeScanned = async ({ type, data }) => {
     setIsScanning(false);
     
+    // 👇 UPDATED ALERT MESSAGE
     if (profile?.hostCredits !== undefined && profile.hostCredits <= 0) {
-      return Alert.alert("Limit Reached", "You have used all your free capabilities! Ask a friend for their referral code to get 5 more credits.");
+      return Alert.alert("Limit Reached", "You have used all your free capabilities! Refill your credits by inviting a friend with your referral code, or purchase more credits (Store coming soon!).");
     }
 
     if (data.startsWith('demitab:event:')) {
@@ -104,11 +105,9 @@ export const DashboardScreen = ({ profile, isDarkMode, toggleTheme, onOpenEvent,
   const handleCreateEvent = async () => {
     if (!newEventName.trim()) return Alert.alert("Name Required", "Please add the name of the event first.");
     
+    // 👇 UPDATED ALERT MESSAGE
     if (profile?.hostCredits !== undefined && profile.hostCredits <= 0) {
-      return Alert.alert(
-        "Limit Reached", 
-        "You have used all 5 of your free Capabilities! Ask a friend for their referral code so you both receive 5 more credits."
-      );
+      return Alert.alert("Limit Reached", "You have used all your free capabilities! Refill your credits by inviting a friend with your referral code, or purchase more credits (Store coming soon!).");
     }
 
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
