@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Share, Alert } fr
 import { doc, setDoc, onSnapshot, getDocs, collection, query, where, getDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { sendPushNotification } from '../services/notifications';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AddMembersScreen } from './AddMembersScreen';
 import { AddItemsScreen } from './AddItemsScreen';
@@ -11,6 +12,7 @@ import { YourShareScreen } from './YourShareScreen';
 import { LedgerScreen } from './LedgerScreen';
 
 export const EventWorkspace = ({ activeEvent, profile, isDarkMode, toggleTheme, onExit }) => {
+  const insets = useSafeAreaInsets();
   const [activeTab, setActiveTab] = useState(activeEvent?.items && activeEvent.items.length > 0 ? 'SPLIT BILL' : 'GROUP');
   
   const [eventData, setEventData] = useState({
@@ -90,7 +92,6 @@ export const EventWorkspace = ({ activeEvent, profile, isDarkMode, toggleTheme, 
                 items: updatedItems
               });
 
-              // 🚀 FIX: Bulletproof SMS Invite logic for ALL unverified users
               if (newlyAdded.length > 0) {
                 const hostName = profile?.name ? profile.name.split(' ')[0] : 'The Host';
                 const eventName = eventData.eventName || 'an event';
@@ -99,7 +100,6 @@ export const EventWorkspace = ({ activeEvent, profile, isDarkMode, toggleTheme, 
                 for (const member of newlyAdded) {
                   let hasApp = false;
 
-                  // 1. Try resolving via known USER_ ID
                   if (member.id && member.id.startsWith('USER_')) {
                     const userDoc = await getDoc(doc(db, 'users', member.id));
                     if (userDoc.exists() && userDoc.data().expoPushToken) {
@@ -108,7 +108,6 @@ export const EventWorkspace = ({ activeEvent, profile, isDarkMode, toggleTheme, 
                     }
                   }
 
-                  // 2. Try resolving via Phone Number if ID check failed
                   if (!hasApp && member.phone) {
                     const phone10 = member.phone.replace(/\D/g, '').slice(-10);
                     if (phone10) {
@@ -124,7 +123,6 @@ export const EventWorkspace = ({ activeEvent, profile, isDarkMode, toggleTheme, 
                     }
                   }
 
-                  // 3. If neither worked, they definitely don't have the app installed
                   if (!hasApp) {
                     nonAppUsers.push(member);
                   }
@@ -170,7 +168,7 @@ export const EventWorkspace = ({ activeEvent, profile, isDarkMode, toggleTheme, 
   };
 
   return (
-    <View style={[styles.container, themeStyles.background]}>
+    <View style={[styles.container, themeStyles.background, { paddingBottom: insets.bottom }]}>
       <View style={[styles.header, themeStyles.card]}>
         <TouchableOpacity onPress={onExit} style={styles.backBtn}><Text style={themeStyles.subText}>← Dashboard</Text></TouchableOpacity>
         <Text style={[styles.headerTitle, themeStyles.text]}>{eventData.eventName}</Text>

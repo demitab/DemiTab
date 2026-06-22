@@ -5,6 +5,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { Picker } from '@react-native-picker/picker';
 import * as Clipboard from 'expo-clipboard';
 import { PulseButton } from '../components/PulseButton';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { doc, setDoc, deleteDoc, collection, query, where, getDocs, updateDoc, increment, getDoc, arrayUnion } from 'firebase/firestore'; 
 import { auth, db } from '../services/firebase';
@@ -71,7 +72,7 @@ const ProfileEditorModal = ({ existingProfile, isDarkMode, onComplete, onCancel 
             hostCredits: increment(5),
             creditHistory: arrayUnion({
               id: Date.now().toString(),
-              title: `Referral Bonus (${form.name.split(' ')[0]})`, // Adds the new user's name to the referrer's ledger
+              title: `Referral Bonus (${form.name.split(' ')[0]})`,
               amount: 5,
               date: new Date().toLocaleDateString('en-GB')
             })
@@ -92,7 +93,7 @@ const ProfileEditorModal = ({ existingProfile, isDarkMode, onComplete, onCancel 
       if (referralApplied) {
         initialHistory.push({
           id: (Date.now() + 1).toString(),
-          title: `Referred by ${referrerName}`, // Adds the referrer's name to the new user's ledger
+          title: `Referred by ${referrerName}`,
           amount: 5,
           date: new Date().toLocaleDateString('en-GB')
         });
@@ -196,6 +197,7 @@ const ProfileEditorModal = ({ existingProfile, isDarkMode, onComplete, onCancel 
 };
 
 export const ProfileScreen = ({ existingProfile, isDarkMode, onComplete, onCancel, onLogout }) => {
+  const insets = useSafeAreaInsets();
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [showCreditModal, setShowCreditModal] = useState(false);
   const [showReferralModal, setShowReferralModal] = useState(false);
@@ -237,13 +239,20 @@ export const ProfileScreen = ({ existingProfile, isDarkMode, onComplete, onCance
       { text: "Cancel", style: "cancel" },
       { text: "Delete Permanently", style: "destructive", onPress: async () => {
           try {
-            if (auth.currentUser) await auth.currentUser.delete();
-            if (existingProfile?.id) await deleteDoc(doc(db, 'users', existingProfile.id));
+            if (existingProfile?.id) {
+              await deleteDoc(doc(db, 'users', existingProfile.id));
+            }
             await AsyncStorage.removeItem('demitab_profile');
+            if (auth.currentUser) {
+              await auth.currentUser.delete();
+            }
             if (onLogout) onLogout();
           } catch (err) {
-            if (err.code === 'auth/requires-recent-login') Alert.alert("Security Verification", "Please log out and log back in to verify your identity before deleting your account.");
-            else Alert.alert("Error", "Could not delete account.");
+            if (err.code === 'auth/requires-recent-login') {
+              Alert.alert("Security Verification", "Please log out and log back in to verify your identity before deleting your account.");
+            } else {
+              Alert.alert("Error", "Could not delete account backend profile completely.");
+            }
           }
         } 
       }
@@ -251,7 +260,7 @@ export const ProfileScreen = ({ existingProfile, isDarkMode, onComplete, onCance
   };
 
   return (
-    <ScrollView contentContainerStyle={[styles.hubContainer, themeStyles.background]}>
+    <ScrollView contentContainerStyle={[styles.hubContainer, themeStyles.background, { paddingBottom: Math.max(40, insets.bottom + 20) }]}>
       <Text style={[styles.hubHeaderTitle, themeStyles.text]}>Account</Text>
 
       <View style={styles.actionStack}>
@@ -278,7 +287,6 @@ export const ProfileScreen = ({ existingProfile, isDarkMode, onComplete, onCance
           <Text style={[styles.actionBtnText, themeStyles.text]}>✉️  Contact Support</Text>
         </TouchableOpacity>
 
-        {/* 🚀 Changed to match the core capsule styles */}
         <TouchableOpacity style={[styles.actionBtn, themeStyles.card]} onPress={handleLogout}>
           <Text style={[styles.actionBtnText, themeStyles.text]}>🔒  Log Out of Vault</Text>
         </TouchableOpacity>
@@ -298,7 +306,7 @@ export const ProfileScreen = ({ existingProfile, isDarkMode, onComplete, onCance
       </Modal>
 
       <Modal visible={showCreditModal} animationType="slide">
-        <View style={[styles.modalContainer, themeStyles.background]}>
+        <View style={[styles.modalContainer, themeStyles.background, { paddingBottom: insets.bottom + 20 }]}>
           <Text style={[styles.modalTitle, themeStyles.text]}>Credit Ledger</Text>
           <Text style={[styles.hintText, themeStyles.subText, {marginBottom: 20}]}>Your complete capability history.</Text>
           
@@ -325,7 +333,7 @@ export const ProfileScreen = ({ existingProfile, isDarkMode, onComplete, onCance
       </Modal>
 
       <Modal visible={showReferralModal} animationType="slide">
-        <View style={[styles.modalContainer, themeStyles.background, {justifyContent: 'center'}]}>
+        <View style={[styles.modalContainer, themeStyles.background, {justifyContent: 'center', paddingBottom: insets.bottom + 20}]}>
           <View style={[styles.referralCard, themeStyles.input]}>
             <Text style={[styles.accountSectionTitle, themeStyles.text, {textAlign: 'center'}]}>Refer & Earn</Text>
             <Text style={[styles.hintText, themeStyles.subText, {textAlign: 'center'}]}>
