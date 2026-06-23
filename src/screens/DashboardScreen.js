@@ -3,12 +3,14 @@ import { View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, Alert, TextI
 import * as Haptics from 'expo-haptics';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { PulseButton } from '../components/PulseButton';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { InsightsSection } from '../components/InsightsSection';
 import { collection, query, where, onSnapshot, doc, updateDoc, arrayUnion, or, deleteDoc, arrayRemove, getDoc, increment } from 'firebase/firestore';
 import { db } from '../services/firebase';
 
 export const DashboardScreen = ({ profile, isDarkMode, toggleTheme, onOpenEvent, onCreateEvent, navigation }) => {
+  const insets = useSafeAreaInsets(); // 🚀 FIXED: Grab safe area
   const [events, setEvents] = useState([]);
   const [newEventName, setNewEventName] = useState('');
   
@@ -50,7 +52,6 @@ export const DashboardScreen = ({ profile, isDarkMode, toggleTheme, onOpenEvent,
   const handleBarCodeScanned = async ({ type, data }) => {
     setIsScanning(false);
     
-    // 👇 UPDATED ALERT MESSAGE
     if (profile?.hostCredits !== undefined && profile.hostCredits <= 0) {
       return Alert.alert("Limit Reached", "You have used all your free capabilities! Refill your credits by inviting a friend with your referral code, or purchase more credits (Store coming soon!).");
     }
@@ -86,7 +87,7 @@ export const DashboardScreen = ({ profile, isDarkMode, toggleTheme, onOpenEvent,
               hostCredits: increment(-1),
               creditHistory: arrayUnion({
                 id: Date.now().toString(),
-                title: `Joined: ${evData.eventName}`, // Includes Event Name
+                title: `Joined: ${evData.eventName}`, 
                 amount: -1,
                 date: new Date().toLocaleDateString('en-GB')
               })
@@ -105,7 +106,6 @@ export const DashboardScreen = ({ profile, isDarkMode, toggleTheme, onOpenEvent,
   const handleCreateEvent = async () => {
     if (!newEventName.trim()) return Alert.alert("Name Required", "Please add the name of the event first.");
     
-    // 👇 UPDATED ALERT MESSAGE
     if (profile?.hostCredits !== undefined && profile.hostCredits <= 0) {
       return Alert.alert("Limit Reached", "You have used all your free capabilities! Refill your credits by inviting a friend with your referral code, or purchase more credits (Store coming soon!).");
     }
@@ -118,7 +118,7 @@ export const DashboardScreen = ({ profile, isDarkMode, toggleTheme, onOpenEvent,
           hostCredits: increment(-1),
           creditHistory: arrayUnion({
             id: Date.now().toString(),
-            title: `Created: ${newEventName.trim()}`, // Includes Event Name
+            title: `Created: ${newEventName.trim()}`,
             amount: -1,
             date: new Date().toLocaleDateString('en-GB')
           })
@@ -167,7 +167,8 @@ export const DashboardScreen = ({ profile, isDarkMode, toggleTheme, onOpenEvent,
 
   return (
     <View style={[styles.container, themeStyles.background]}>
-      <View style={[styles.header, themeStyles.card]}>
+      {/* 🚀 FIXED: Dynamic Top Padding Applied to dodge the notch */}
+      <View style={[styles.header, themeStyles.card, { paddingTop: Math.max(insets.top, 20) + 10 }]}>
         <View style={styles.headerLeft}>
           <Text style={[styles.greeting, themeStyles.text]}>Hello, {localName ? localName.split(' ')[0] : 'User'} 👋</Text>
           <Text style={[styles.creditsSubtext, themeStyles.subText]}>🪙 {profile?.hostCredits ?? 0} Credits Remaining</Text>
@@ -251,7 +252,8 @@ export const DashboardScreen = ({ profile, isDarkMode, toggleTheme, onOpenEvent,
       <Modal visible={isScanning} animationType="slide">
         <View style={{ flex: 1, backgroundColor: '#000' }}>
           <CameraView style={{ flex: 1 }} facing="back" barcodeScannerSettings={{ barcodeTypes: ["qr"] }} onBarcodeScanned={handleBarCodeScanned} />
-          <View style={styles.scannerOverlay}>
+          {/* 🚀 FIXED: Dynamic padding applied to scanner overlay */}
+          <View style={[styles.scannerOverlay, { paddingBottom: Math.max(insets.bottom, 50) }]}>
             <Text style={styles.scannerInstruction}>Point camera at Host's QR Code</Text>
             <TouchableOpacity onPress={() => setIsScanning(false)} style={styles.cancelScanBtn}><Text style={styles.cancelScanText}>Cancel</Text></TouchableOpacity>
           </View>
@@ -275,7 +277,7 @@ const darkTheme = {
 
 const styles = StyleSheet.create({ 
   container: { flex: 1 }, 
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 24, paddingTop: 60, borderBottomWidth: 1, borderBottomLeftRadius: 24, borderBottomRightRadius: 24 }, 
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 24, paddingBottom: 20, borderBottomWidth: 1, borderBottomLeftRadius: 24, borderBottomRightRadius: 24 }, 
   headerLeft: { flex: 1 }, 
   greeting: { fontSize: 24, fontWeight: '900'}, 
   creditsSubtext: { fontSize: 15, fontWeight: '700', marginTop: 2 },
@@ -305,7 +307,7 @@ const styles = StyleSheet.create({
   eventRight: { alignItems: 'flex-end' }, 
   eventTotal: { fontSize: 20, fontWeight: '900', marginBottom: 4 }, 
   viewText: { color: '#5BC5A7', fontWeight: '800', fontSize: 12 }, 
-  scannerOverlay: { position: 'absolute', bottom: 50, left: 0, right: 0, alignItems: 'center' }, 
+  scannerOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, alignItems: 'center' }, 
   scannerInstruction: { color: '#fff', fontSize: 18, fontWeight: '800', marginBottom: 30, textShadowColor: 'rgba(0,0,0,0.75)', textShadowOffset: { width: -1, height: 1 }, textShadowRadius: 10 }, 
   cancelScanBtn: { backgroundColor: '#EF4444', paddingVertical: 16, paddingHorizontal: 40, borderRadius: 20 }, 
   cancelScanText: { color: '#fff', fontWeight: '900', fontSize: 16 } 

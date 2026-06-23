@@ -26,7 +26,8 @@
       },
       "package": "com.demifi.DemiTab",
       "versionCode": 2,
-      "googleServicesFile": "./google-services.json"
+      "googleServicesFile": "./google-services.json",
+      "softwareKeyboardLayoutMode": "resize" 
     },
     "web": {
       "favicon": "./assets/favicon.png"

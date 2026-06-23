@@ -19,6 +19,7 @@ const formatDate = (date) => {
 };
 
 const ProfileEditorModal = ({ existingProfile, isDarkMode, onComplete, onCancel }) => {
+  const insets = useSafeAreaInsets(); // 🚀 FIXED: Added insets
   const currentUserPhone = auth?.currentUser?.phoneNumber ? auth.currentUser.phoneNumber.replace('+91', '') : '';
   const initialFormState = existingProfile || { name: '', phone: currentUserPhone, email: '', birthday: '', sex: 'Male', maritalStatus: 'Single', anniversary: '' };
   
@@ -114,7 +115,8 @@ const ProfileEditorModal = ({ existingProfile, isDarkMode, onComplete, onCancel 
   };
 
   return (
-    <ScrollView contentContainerStyle={[styles.scrollContainer, themeStyles.background]} keyboardShouldPersistTaps="handled">
+    // 🚀 FIXED: Dynamic Top Padding Applied
+    <ScrollView contentContainerStyle={[styles.scrollContainer, themeStyles.background, { paddingTop: Math.max(insets.top, 20) + 20 }]} keyboardShouldPersistTaps="handled">
       <View style={[styles.card, themeStyles.card]}>
         <Text style={[styles.title, themeStyles.text]}>{existingProfile ? 'Edit Profile' : 'Welcome to DemiTab'}</Text>
         <Text style={themeStyles.subText}>{existingProfile ? 'Update your details below.' : 'Set up your profile to start splitting bills cleanly.'}</Text>
@@ -197,7 +199,7 @@ const ProfileEditorModal = ({ existingProfile, isDarkMode, onComplete, onCancel 
 };
 
 export const ProfileScreen = ({ existingProfile, isDarkMode, onComplete, onCancel, onLogout }) => {
-  const insets = useSafeAreaInsets();
+  const insets = useSafeAreaInsets(); // 🚀 FIXED: Added insets
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [showCreditModal, setShowCreditModal] = useState(false);
   const [showReferralModal, setShowReferralModal] = useState(false);
@@ -239,20 +241,13 @@ export const ProfileScreen = ({ existingProfile, isDarkMode, onComplete, onCance
       { text: "Cancel", style: "cancel" },
       { text: "Delete Permanently", style: "destructive", onPress: async () => {
           try {
-            if (existingProfile?.id) {
-              await deleteDoc(doc(db, 'users', existingProfile.id));
-            }
+            if (auth.currentUser) await auth.currentUser.delete();
+            if (existingProfile?.id) await deleteDoc(doc(db, 'users', existingProfile.id));
             await AsyncStorage.removeItem('demitab_profile');
-            if (auth.currentUser) {
-              await auth.currentUser.delete();
-            }
             if (onLogout) onLogout();
           } catch (err) {
-            if (err.code === 'auth/requires-recent-login') {
-              Alert.alert("Security Verification", "Please log out and log back in to verify your identity before deleting your account.");
-            } else {
-              Alert.alert("Error", "Could not delete account backend profile completely.");
-            }
+            if (err.code === 'auth/requires-recent-login') Alert.alert("Security Verification", "Please log out and log back in to verify your identity before deleting your account.");
+            else Alert.alert("Error", "Could not delete account.");
           }
         } 
       }
@@ -260,7 +255,8 @@ export const ProfileScreen = ({ existingProfile, isDarkMode, onComplete, onCance
   };
 
   return (
-    <ScrollView contentContainerStyle={[styles.hubContainer, themeStyles.background, { paddingBottom: Math.max(40, insets.bottom + 20) }]}>
+    // 🚀 FIXED: Dynamic Top and Bottom Padding Applied
+    <ScrollView contentContainerStyle={[styles.hubContainer, themeStyles.background, { paddingTop: Math.max(insets.top, 20) + 20, paddingBottom: Math.max(insets.bottom, 40) }]}>
       <Text style={[styles.hubHeaderTitle, themeStyles.text]}>Account</Text>
 
       <View style={styles.actionStack}>
@@ -306,7 +302,7 @@ export const ProfileScreen = ({ existingProfile, isDarkMode, onComplete, onCance
       </Modal>
 
       <Modal visible={showCreditModal} animationType="slide">
-        <View style={[styles.modalContainer, themeStyles.background, { paddingBottom: insets.bottom + 20 }]}>
+        <View style={[styles.modalContainer, themeStyles.background, { paddingTop: Math.max(insets.top, 20), paddingBottom: Math.max(insets.bottom, 20) }]}>
           <Text style={[styles.modalTitle, themeStyles.text]}>Credit Ledger</Text>
           <Text style={[styles.hintText, themeStyles.subText, {marginBottom: 20}]}>Your complete capability history.</Text>
           
@@ -333,7 +329,7 @@ export const ProfileScreen = ({ existingProfile, isDarkMode, onComplete, onCance
       </Modal>
 
       <Modal visible={showReferralModal} animationType="slide">
-        <View style={[styles.modalContainer, themeStyles.background, {justifyContent: 'center', paddingBottom: insets.bottom + 20}]}>
+        <View style={[styles.modalContainer, themeStyles.background, {justifyContent: 'center', paddingBottom: Math.max(insets.bottom, 20)}]}>
           <View style={[styles.referralCard, themeStyles.input]}>
             <Text style={[styles.accountSectionTitle, themeStyles.text, {textAlign: 'center'}]}>Refer & Earn</Text>
             <Text style={[styles.hintText, themeStyles.subText, {textAlign: 'center'}]}>
@@ -359,7 +355,7 @@ const lightTheme = { background: { backgroundColor: '#F9FAFB' }, text: { color: 
 const darkTheme = { background: { backgroundColor: '#111827' }, text: { color: '#F9FAFB' }, subText: { color: '#9CA3AF' }, placeholderText: { color: '#6B7280' }, card: { backgroundColor: '#1F2937', borderColor: '#374151' }, input: { backgroundColor: '#374151', borderColor: '#4B5563', color: '#F9FAFB' }, pickerText: { color: '#F9FAFB' }, divider: { backgroundColor: '#4B5563' } };
 
 const styles = StyleSheet.create({
-  scrollContainer: { flexGrow: 1, padding: 20, paddingTop: 40, paddingBottom: 60 },
+  scrollContainer: { flexGrow: 1, padding: 20 },
   card: { padding: 24, borderRadius: 16, borderWidth: 1 },
   title: { fontSize: 24, fontWeight: '800', textAlign: 'center', marginBottom: 8 },
   label: { fontSize: 11, fontWeight: '700', color: '#6B7280', textTransform: 'uppercase', marginBottom: 4, marginTop: 12 },
@@ -372,7 +368,7 @@ const styles = StyleSheet.create({
   cancelBtnText: { fontWeight: '700', fontSize: 15 },
   btnText: { color: '#fff', fontWeight: '800', fontSize: 16, letterSpacing: 1 },
   
-  hubContainer: { flexGrow: 1, padding: 20, paddingTop: 60, paddingBottom: 40 },
+  hubContainer: { flexGrow: 1, padding: 20 },
   hubHeaderTitle: { fontSize: 28, fontWeight: '900', marginBottom: 24, textAlign: 'center' },
   actionStack: { gap: 12 },
   actionBtn: { padding: 18, borderRadius: 16, borderWidth: 1, flexDirection: 'row', alignItems: 'center' },
@@ -381,7 +377,7 @@ const styles = StyleSheet.create({
   deleteBtnBg: { backgroundColor: '#FEF2F2', borderColor: '#EF4444' },
   deleteBtnText: { color: '#EF4444', fontSize: 16, fontWeight: '700' },
 
-  modalContainer: { flex: 1, padding: 24, paddingTop: 60 },
+  modalContainer: { flex: 1, padding: 24 },
   modalTitle: { fontSize: 28, fontWeight: '900', marginBottom: 4 },
   historyRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderRadius: 12, borderWidth: 1, marginBottom: 10 },
   historyTitle: { fontSize: 15, fontWeight: '800', marginBottom: 2 },

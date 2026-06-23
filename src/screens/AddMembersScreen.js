@@ -37,7 +37,7 @@ export const AddMembersScreen = ({ eventData, profile, isDarkMode, onSaveMembers
   const [frequentContacts, setFrequentContacts] = useState([]);
   
   const themeStyles = isDarkMode ? darkTheme : lightTheme;
-  const insets = useSafeAreaInsets();
+  const insets = useSafeAreaInsets(); // 🚀 FIXED: Init Insets
 
   const sortedMembers = useMemo(() => {
     return [...members].sort((a, b) => a.name.localeCompare(b.name));
@@ -232,42 +232,46 @@ export const AddMembersScreen = ({ eventData, profile, isDarkMode, onSaveMembers
   const secureEventId = eventData.id || "TEMP_" + Date.now().toString();
 
   return (
-    <View style={[styles.container, themeStyles.background, { paddingBottom: 20 + insets.bottom }]}>
+    <View style={[styles.container, themeStyles.background]}>
       
-      <PulseButton style={[styles.primaryActionBtn, themeStyles.primaryBtn]} onPress={openPhonebook}>
-        <Text style={[styles.primaryActionText, themeStyles.primaryBtnText]}>📖 Add via Contacts</Text>
-      </PulseButton>
-      <Text style={styles.sectionDivider}>OR ADD MANUALLY</Text>
+      <View style={{paddingHorizontal: 20, paddingTop: 20}}>
+        <PulseButton style={[styles.primaryActionBtn, themeStyles.primaryBtn]} onPress={openPhonebook}>
+          <Text style={[styles.primaryActionText, themeStyles.primaryBtnText]}>📖 Add via Contacts</Text>
+        </PulseButton>
+        <Text style={styles.sectionDivider}>OR ADD MANUALLY</Text>
 
-      <View style={styles.inputRow}>
-        <TextInput style={[styles.input, themeStyles.input, themeStyles.text, { flex: 1 }]} placeholder="Friend's Name" value={name} onChangeText={setName} placeholderTextColor={isDarkMode ? '#9CA3AF' : '#6B7280'} />
-        <TouchableOpacity style={[styles.addBtn, themeStyles.primaryBtn]} onPress={addManual}><Text style={[styles.addBtnText, themeStyles.primaryBtnText]}>+</Text></TouchableOpacity>
-        <TouchableOpacity style={[styles.qrBtnInline, themeStyles.primaryBtn]} onPress={() => setShowQRModal(true)}><Text style={[styles.qrBtnInlineText, themeStyles.primaryBtnText]}>🔲 QR</Text></TouchableOpacity>
+        <View style={styles.inputRow}>
+          <TextInput style={[styles.input, themeStyles.input, themeStyles.text, { flex: 1 }]} placeholder="Friend's Name" value={name} onChangeText={setName} placeholderTextColor={isDarkMode ? '#9CA3AF' : '#6B7280'} />
+          <TouchableOpacity style={[styles.addBtn, themeStyles.primaryBtn]} onPress={addManual}><Text style={[styles.addBtnText, themeStyles.primaryBtnText]}>+</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.qrBtnInline, themeStyles.primaryBtn]} onPress={() => setShowQRModal(true)}><Text style={[styles.qrBtnInlineText, themeStyles.primaryBtnText]}>🔲 QR</Text></TouchableOpacity>
+        </View>
+
+        {frequentContacts.length > 0 && (
+          <View style={styles.quickContactsContainer}>
+            <Text style={[styles.sectionLabel, themeStyles.subText]}>FREQUENT CONTACTS</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {frequentContacts.map((contact, index) => (
+                <TouchableOpacity key={index} style={[styles.quickContactPill, themeStyles.pill]} onPress={() => {
+                  if (isDuplicate(members, contact.name, contact.phone)) {
+                    Alert.alert('Notice', 'Already Added in the Group');
+                  } else {
+                    syncMembersToDB([{ ...contact, id: Date.now().toString() + Math.random() }, ...members]);
+                  }
+                }}>
+                  <Text style={[styles.quickContactText, themeStyles.pillText]}>{contact.name.split(' ')[0]}</Text>
+                  <Text style={[styles.plusIcon, themeStyles.pillText]}>+</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
+        <Text style={[styles.sectionLabel, themeStyles.subText, { marginTop: 15 }]}>CURRENT GROUP ({members.length + 1} People)</Text>
       </View>
 
-      {frequentContacts.length > 0 && (
-        <View style={styles.quickContactsContainer}>
-          <Text style={[styles.sectionLabel, themeStyles.subText]}>FREQUENT CONTACTS</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {frequentContacts.map((contact, index) => (
-              <TouchableOpacity key={index} style={[styles.quickContactPill, themeStyles.pill]} onPress={() => {
-                if (isDuplicate(members, contact.name, contact.phone)) {
-                  Alert.alert('Notice', 'Already Added in the Group');
-                } else {
-                  syncMembersToDB([{ ...contact, id: Date.now().toString() + Math.random() }, ...members]);
-                }
-              }}>
-                <Text style={[styles.quickContactText, themeStyles.pillText]}>{contact.name.split(' ')[0]}</Text>
-                <Text style={[styles.plusIcon, themeStyles.pillText]}>+</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      )}
-
-      <Text style={[styles.sectionLabel, themeStyles.subText, { marginTop: 15 }]}>CURRENT GROUP ({members.length + 1} People)</Text>
       <FlatList 
-        data={sortedMembers} keyExtractor={(item) => item.id} contentContainerStyle={styles.listContainer}
+        data={sortedMembers} keyExtractor={(item) => item.id} 
+        contentContainerStyle={styles.listContainer} /* 🚀 FIXED: List is padded bottom 150 */
         ListHeaderComponent={
           <View style={[styles.memberRow, themeStyles.hostRow]}>
             <View>
@@ -308,7 +312,7 @@ export const AddMembersScreen = ({ eventData, profile, isDarkMode, onSaveMembers
             )}/>
           )}
           {selectedContacts.size > 0 && (
-            <View style={styles.multiSelectFooter}>
+            <View style={[styles.multiSelectFooter, { paddingBottom: Math.max(insets.bottom, 20) }]}>
               <PulseButton onPress={submitSelectedContacts} style={[styles.multiSelectBtn, themeStyles.primaryBtn]}>
                 <Text style={[styles.multiSelectBtnText, themeStyles.primaryBtnText]}>Add {selectedContacts.size} Friend{selectedContacts.size > 1 ? 's' : ''}</Text>
               </PulseButton>
@@ -317,9 +321,12 @@ export const AddMembersScreen = ({ eventData, profile, isDarkMode, onSaveMembers
         </View>
       </Modal>
 
-      <PulseButton onPress={() => onSaveMembers([actualHost, ...members])} style={styles.nextBtn}>
-        <Text style={styles.btnText}>Save Group & Continue</Text>
-      </PulseButton>
+      {/* 🚀 FIXED: Universal Absolute Footer applied with dynamic insets */}
+      <View style={[styles.footer, themeStyles.background, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+        <PulseButton onPress={() => onSaveMembers([actualHost, ...members])} style={styles.nextBtn}>
+          <Text style={styles.btnText}>Save Group & Continue</Text>
+        </PulseButton>
+      </View>
     </View>
   );
 };
@@ -328,7 +335,7 @@ const lightTheme = { background: { backgroundColor: '#F9FAFB' }, text: { color: 
 const darkTheme = { background: { backgroundColor: '#111827' }, text: { color: '#F9FAFB' }, subText: { color: '#9CA3AF' }, card: { backgroundColor: '#1F2937', borderColor: '#374151' }, input: { backgroundColor: '#374151', borderColor: '#4B5563', color: '#F9FAFB' }, primaryBtn: { backgroundColor: '#5BC5A7' }, primaryBtnText: { color: '#111827' }, pill: { backgroundColor: '#374151', borderColor: '#4B5563' }, pillText: { color: '#F9FAFB' }, hostRow: { backgroundColor: '#374151', borderColor: '#4B5563' }, hostBadge: { backgroundColor: '#4B5563' }, hostBadgeText: { color: '#F9FAFB' }, divider: { borderBottomColor: '#374151' }, qrBg: { backgroundColor: '#1F2937', borderColor: '#374151' } };
 
 const styles = StyleSheet.create({ 
-  container: { flex: 1, padding: 20 }, 
+  container: { flex: 1 }, 
   primaryActionBtn: { width: '100%', padding: 20, borderRadius: 16, marginBottom: 12 }, 
   primaryActionText: { fontWeight: '900', fontSize: 18, textAlign: 'center', letterSpacing: 0.5 }, 
   sectionDivider: { fontSize: 10, fontWeight: '800', color: '#9CA3AF', textAlign: 'center', marginVertical: 15, letterSpacing: 1 }, 
@@ -343,7 +350,7 @@ const styles = StyleSheet.create({
   quickContactPill: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, marginRight: 10, borderWidth: 1 }, 
   quickContactText: { fontWeight: '700', fontSize: 14, marginRight: 6 }, 
   plusIcon: { fontWeight: '900', fontSize: 16 }, 
-  listContainer: { paddingBottom: 20 }, 
+  listContainer: { paddingBottom: 150, paddingHorizontal: 20 }, 
   memberRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, borderRadius: 12, marginBottom: 8, borderWidth: 1 }, 
   memberName: { fontSize: 16, fontWeight: '700' }, 
   memberPhone: { fontSize: 12, marginTop: 2 }, 
@@ -351,7 +358,7 @@ const styles = StyleSheet.create({
   hostBadgeText: { fontSize: 10, fontWeight: '800', textTransform: 'uppercase' }, 
   removeBtn: { backgroundColor: '#FEF2F2', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 }, 
   removeText: { fontSize: 12, color: '#EF4444', fontWeight: '700' }, 
-  nextBtn: { backgroundColor: '#5BC5A7', marginTop: 10 }, 
+  nextBtn: { backgroundColor: '#5BC5A7', padding: 18, borderRadius: 16 }, 
   btnText: { color: '#fff', fontWeight: '800', fontSize: 16, textAlign: 'center' }, 
   modalContainer: { flex: 1, paddingTop: Platform.OS === 'ios' ? 20 : 0 }, 
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: 'rgba(0,0,0,0.1)' }, 
@@ -366,12 +373,13 @@ const styles = StyleSheet.create({
   checkboxSelected: { backgroundColor: '#5BC5A7', borderColor: '#5BC5A7' }, 
   checkmark: { color: '#fff', fontWeight: '900', fontSize: 12 }, 
   multiSelectFooter: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: 'transparent' }, 
-  multiSelectBtn: { width: '100%' }, 
+  multiSelectBtn: { width: '100%', padding: 18, borderRadius: 16 }, 
   multiSelectBtnText: { fontWeight: '900', fontSize: 16, textAlign: 'center' }, 
   qrModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', padding: 20 }, 
   qrModalContent: { width: '100%', padding: 30, borderRadius: 24, alignItems: 'center', borderWidth: 1 }, 
   qrModalTitle: { fontSize: 24, fontWeight: '900', marginBottom: 5 }, 
   qrPlaceholder: { width: 240, height: 240, justifyContent: 'center', alignItems: 'center', marginBottom: 30, borderRadius: 24, borderWidth: 1 }, 
   qrCloseBtn: { width: '100%', paddingVertical: 16, borderRadius: 16, alignItems: 'center', borderWidth: 1 }, 
-  qrCloseBtnText: { fontWeight: '800', fontSize: 16 } 
+  qrCloseBtnText: { fontWeight: '800', fontSize: 16 },
+  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 20, paddingTop: 15, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' }
 });

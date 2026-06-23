@@ -4,6 +4,7 @@ import * as Haptics from 'expo-haptics';
 import { FontAwesome } from '@expo/vector-icons';
 import { PulseButton } from '../components/PulseButton';
 import { registerForPushNotificationsAsync } from '../services/notifications';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, onNext }) => {
   const [detailsModal, setDetailsModal] = useState({ visible: false, member: null });
@@ -11,13 +12,13 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
   const [settleMethod, setSettleMethod] = useState('UPI'); 
   const [paidById, setPaidById] = useState(null); 
   
-  // Premium Centered Victory Overlay State
   const [showVictoryOverlay, setShowVictoryOverlay] = useState(false);
   const [victoryMessage, setVictoryMessage] = useState('');
   const [victoryColor, setVictoryColor] = useState('#ffffff');
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   const [expoPushToken, setExpoPushToken] = useState('');
+  const insets = useSafeAreaInsets(); // 🚀 FIXED: Init Insets
 
   const { paymentStrategy, mainPayerId } = eventData;
   const settlements = eventData.settlements || {}; 
@@ -225,7 +226,6 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
         })}
       </ScrollView>
 
-      {/* 🚀 FIX: Formatted explicitly to prevent stray string spaces from crashing the Modal */}
       {detailsModal.visible && detailsModal.member ? (
         <Modal transparent={true} animationType="slide">
           <View style={styles.modalOverlay}>
@@ -362,13 +362,13 @@ export const YourShareScreen = ({ eventData, profile, isDarkMode, onUpdateData, 
         </Modal>
       ) : null}
 
-      <View style={styles.footer}>
+      {/* 🚀 FIXED: Universal Absolute Footer applied with dynamic insets */}
+      <View style={[styles.footer, themeStyles.background, { paddingBottom: Math.max(insets.bottom, 20) }]}>
         <PulseButton onPress={() => onNext({ paymentStrategy, mainPayerId, memberShares, settlements })} style={styles.finishBtn}>
           <Text style={styles.finishBtnText}>Finish & View Ledger</Text>
         </PulseButton>
       </View>
 
-      {/* Centered, Boxed Victory Message with dynamic borders */}
       {showVictoryOverlay ? (
         <Animated.View style={[styles.victoryOverlayContainer, { opacity: fadeAnim }]} pointerEvents="none">
            <View style={[styles.victoryMessageCard, themeStyles.card, { borderColor: victoryColor }]}>
@@ -386,7 +386,7 @@ const darkTheme = { background: { backgroundColor: '#111827' }, text: { color: '
 
 const styles = StyleSheet.create({ 
   container: { flex: 1 }, 
-  scrollList: { padding: 20, paddingBottom: 100 }, 
+  scrollList: { padding: 20, paddingBottom: 150 }, 
   strategyCard: { padding: 20, borderBottomWidth: 1 }, 
   sectionTitle: { fontSize: 14, fontWeight: '800', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 }, 
   strategyRow: { flexDirection: 'row', gap: 10 }, 
@@ -435,8 +435,8 @@ const styles = StyleSheet.create({
   modalBtnCancel: { flex: 1, paddingVertical: 16, borderRadius: 12, alignItems: 'center', borderWidth: 1 }, 
   modalBtnText: { fontWeight: '800', fontSize: 16 }, 
   modalBtnSave: { flex: 1, backgroundColor: '#10B981', paddingVertical: 16, borderRadius: 12, alignItems: 'center' }, 
-  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: 'transparent' }, 
-  finishBtn: { backgroundColor: '#5BC5A7', padding: 18 }, 
+  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 20, paddingTop: 15, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' }, 
+  finishBtn: { backgroundColor: '#5BC5A7', padding: 18, borderRadius: 16 }, 
   finishBtnText: { color: '#fff', fontWeight: '900', fontSize: 16, textAlign: 'center' },
   victoryOverlayContainer: { ...StyleSheet.absoluteFillObject, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.65)', zIndex: 999, padding: 20 },
   victoryMessageCard: { padding: 30, borderRadius: 24, borderWidth: 2, alignItems: 'center', justifyContent: 'center', width: '90%', shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 8 },

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Share, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Share, Alert, StatusBar } from 'react-native';
 import { doc, setDoc, onSnapshot, getDocs, collection, query, where, getDoc } from 'firebase/firestore';
 import { db } from '../services/firebase';
 import { sendPushNotification } from '../services/notifications';
@@ -168,8 +168,10 @@ export const EventWorkspace = ({ activeEvent, profile, isDarkMode, toggleTheme, 
   };
 
   return (
-    <View style={[styles.container, themeStyles.background, { paddingBottom: insets.bottom }]}>
-      <View style={[styles.header, themeStyles.card]}>
+    <View style={[styles.container, themeStyles.background]}>
+      {/* 🚀 FIXED: Injected direct full-screen toggle protection onto header bounds */}
+      <StatusBar hidden={true} />
+      <View style={[styles.header, themeStyles.card, { paddingTop: Math.max(insets.top, 20) }]}>
         <TouchableOpacity onPress={onExit} style={styles.backBtn}><Text style={themeStyles.subText}>← Dashboard</Text></TouchableOpacity>
         <Text style={[styles.headerTitle, themeStyles.text]}>{eventData.eventName}</Text>
         <TouchableOpacity onPress={toggleTheme} style={styles.themeToggle}><Text style={{ fontSize: 18 }}>{isDarkMode ? '☀️' : '🌙'}</Text></TouchableOpacity>
@@ -193,7 +195,7 @@ const darkTheme = { background: { backgroundColor: '#111827' }, text: { color: '
 
 const styles = StyleSheet.create({ 
   container: { flex: 1 }, 
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, borderBottomWidth: 1 }, 
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingBottom: 20, borderBottomWidth: 1 }, 
   backBtn: { flex: 1 }, 
   headerTitle: { flex: 2, fontSize: 18, fontWeight: '800', textAlign: 'center' }, 
   themeToggle: { flex: 1, alignItems: 'flex-end', padding: 5 }, 

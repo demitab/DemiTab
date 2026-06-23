@@ -6,13 +6,9 @@ export const calculateTabs = (event) => {
 
   // 1. Calculate Subtotals exactly
   event.items.forEach((item) => {
-    // Safely handle both 'amount' and 'price * qty' logic
     const itemTotal = Number(item.amount) || (Number(item.price) * Number(item.qty)) || 0;
-    
-    // Safely check type (handling casing, singular/plural, and undefined)
     const itemType = item.type ? item.type.toLowerCase() : 'uncategorized';
     
-    // Default strict routing: If it's not explicitly a drink, it goes to food
     if (itemType === 'drink' || itemType === 'drinks') {
       drinksSubtotal += itemTotal;
     } else {
@@ -26,23 +22,30 @@ export const calculateTabs = (event) => {
   const sgstRate = Number(taxes.sgstFood) || Number(taxes.sgstRate) || 0;
   const vatRate = Number(taxes.vatDrinks) || Number(taxes.vatRate) || 0;
   const serviceRate = Number(taxes.serviceCharge) || Number(taxes.serviceChargeRate) || 0;
+  const globalDiscount = Number(taxes.discountAmt) || 0;
 
-  const cgstAmt = foodSubtotal * (cgstRate / 100);
-  const sgstAmt = foodSubtotal * (sgstRate / 100);
+  // 🚀 MATH FIX: Apply discount to Food Subtotal first
+  let effectiveFoodSubtotal = Math.max(0, foodSubtotal - globalDiscount);
+  let remainingDiscount = Math.max(0, globalDiscount - foodSubtotal);
+  let effectiveDrinksSubtotal = Math.max(0, drinksSubtotal - remainingDiscount);
+
+  // Apply service charge to the discounted amounts
+  const serviceFood = effectiveFoodSubtotal * (serviceRate / 100);
+  const serviceDrinks = effectiveDrinksSubtotal * (serviceRate / 100);
+
+  // Taxes are applied ON TOP of the discounted (Food + Service Charge) per Indian tax norms
+  const cgstAmt = (effectiveFoodSubtotal + serviceFood) * (cgstRate / 100);
+  const sgstAmt = (effectiveFoodSubtotal + serviceFood) * (sgstRate / 100);
   const gstAmt = cgstAmt + sgstAmt;
 
-  const vatAmt = drinksSubtotal * (vatRate / 100);
-  const serviceFood = foodSubtotal * (serviceRate / 100);
-  const serviceDrinks = drinksSubtotal * (serviceRate / 100);
+  const vatAmt = (effectiveDrinksSubtotal + serviceDrinks) * (vatRate / 100);
   const tip = Number(taxes.tipAmount) || 0;
 
-  const overallSubtotal = foodSubtotal + drinksSubtotal;
-  const rawGrandTotalWithoutFee = overallSubtotal + gstAmt + vatAmt + serviceFood + serviceDrinks + tip;
+  const rawGrandTotalWithoutFee = effectiveFoodSubtotal + effectiveDrinksSubtotal + gstAmt + vatAmt + serviceFood + serviceDrinks + tip;
 
   const convFeeTotal = Math.floor(rawGrandTotalWithoutFee / 1000) * 10;
   const trialDiscountTotal = -convFeeTotal;
   
-  // EXACT TOTAL INSTEAD OF ROUNDING
   const exactGrandTotal = Number((rawGrandTotalWithoutFee + convFeeTotal + trialDiscountTotal).toFixed(2));
 
   // 2. Calculate Individual Shares
@@ -70,14 +73,23 @@ export const calculateTabs = (event) => {
       }
     });
 
+    // 🚀 MATH FIX: Proportionally distribute the global discount to this specific member
+    const memberFoodDiscount = foodSubtotal > 0 ? (globalDiscount * (myFood / foodSubtotal)) : 0;
+    const memberDrinkDiscount = drinksSubtotal > 0 ? (remainingDiscount * (myDrinks / drinksSubtotal)) : 0;
+
+    const effectiveMyFood = Math.max(0, myFood - memberFoodDiscount);
+    const effectiveMyDrinks = Math.max(0, myDrinks - memberDrinkDiscount);
+
     const mLen = event.members.length > 0 ? event.members.length : 1;
+    
+    // Calculates their specific slice of the pie based on their discounted baseline
     const totalOwedRaw =
-      myFood + myDrinks +
-      (myFood * (cgstRate / 100)) +
-      (myFood * (sgstRate / 100)) +
-      (myDrinks * (vatRate / 100)) +
-      (myFood * (serviceRate / 100)) +
-      (myDrinks * (serviceRate / 100)) +
+      effectiveMyFood + effectiveMyDrinks +
+      (effectiveMyFood * (serviceRate / 100)) +
+      (effectiveMyDrinks * (serviceRate / 100)) +
+      (effectiveMyFood + (effectiveMyFood * (serviceRate / 100))) * (cgstRate / 100) +
+      (effectiveMyFood + (effectiveMyFood * (serviceRate / 100))) * (sgstRate / 100) +
+      (effectiveMyDrinks + (effectiveMyDrinks * (serviceRate / 100))) * (vatRate / 100) +
       (tip / mLen) + (convFeeTotal / mLen) + (trialDiscountTotal / mLen);
 
     const settled = (event.ledger || [])
@@ -107,7 +119,7 @@ export const calculateTabs = (event) => {
   return {
     foodSubtotal, drinksSubtotal, cgstAmt, sgstAmt, gstAmt, vatAmt,
     serviceFood, serviceDrinks, tip, convFeeTotal, trialDiscountTotal,
-    roundedGrandTotal: exactGrandTotal, // Keeping this key name backwards compatible so other screens don't crash
+    roundedGrandTotal: exactGrandTotal, 
     personalTabs: exactTabs,
   };
 };

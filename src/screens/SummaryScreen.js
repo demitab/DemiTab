@@ -7,10 +7,11 @@ import { db } from '../services/firebase';
 import { getAnalytics, logEvent } from '@react-native-firebase/analytics';
 
 export const SummaryScreen = ({ eventData, isDarkMode, onFinish }) => {
-  const [serviceCharge, setServiceCharge] = useState(eventData.taxes?.serviceChargeRate > 0 ? eventData.taxes.serviceChargeRate.toString() : '');
   const [cgst, setCgst] = useState(eventData.taxes?.cgstRate > 0 ? eventData.taxes.cgstRate.toString() : '');
   const [sgst, setSgst] = useState(eventData.taxes?.sgstRate > 0 ? eventData.taxes.sgstRate.toString() : '');
   const [vat, setVat] = useState(eventData.taxes?.vatRate > 0 ? eventData.taxes.vatRate.toString() : '');
+  const [serviceCharge, setServiceCharge] = useState(eventData.taxes?.serviceChargeRate > 0 ? eventData.taxes.serviceChargeRate.toString() : '');
+  const [discount, setDiscount] = useState(eventData.taxes?.discountAmt > 0 ? eventData.taxes.discountAmt.toString() : '');
   const [actualTotal, setActualTotal] = useState(eventData.actualTotal > 0 ? eventData.actualTotal.toString() : '');
 
   const insets = useSafeAreaInsets();
@@ -29,24 +30,29 @@ export const SummaryScreen = ({ eventData, isDarkMode, onFinish }) => {
   }, [eventData.items]);
 
   const taxMath = useMemo(() => {
-    const scRate = parseFloat(serviceCharge) || 0;
     const cgstRate = parseFloat(cgst) || 0;
     const sgstRate = parseFloat(sgst) || 0;
     const vatRate = parseFloat(vat) || 0;
+    const scRate = parseFloat(serviceCharge) || 0;
+    const discountAmt = parseFloat(discount) || 0;
 
-    const foodSC = foodSubtotal * (scRate / 100);
-    const drinkSC = drinkSubtotal * (scRate / 100);
+    let effectiveFoodSubtotal = Math.max(0, foodSubtotal - discountAmt);
+    let remainingDiscount = Math.max(0, discountAmt - foodSubtotal);
+    let effectiveDrinkSubtotal = Math.max(0, drinkSubtotal - remainingDiscount);
+
+    const foodSC = effectiveFoodSubtotal * (scRate / 100);
+    const drinkSC = effectiveDrinkSubtotal * (scRate / 100);
     const totalSC = foodSC + drinkSC;
 
-    const calcCgst = (foodSubtotal + foodSC) * (cgstRate / 100);
-    const calcSgst = (foodSubtotal + foodSC) * (sgstRate / 100);
-    const calcVat = (drinkSubtotal + drinkSC) * (vatRate / 100);
+    const calcCgst = (effectiveFoodSubtotal + foodSC) * (cgstRate / 100);
+    const calcSgst = (effectiveFoodSubtotal + foodSC) * (sgstRate / 100);
+    const calcVat = (effectiveDrinkSubtotal + drinkSC) * (vatRate / 100);
 
-    const rawTotal = itemsTotal + totalSC + calcCgst + calcSgst + calcVat;
+    const rawTotal = effectiveFoodSubtotal + effectiveDrinkSubtotal + totalSC + calcCgst + calcSgst + calcVat;
     const roundedTotal = Math.round(rawTotal);
 
-    return { serviceChargeAmt: totalSC, cgstAmt: calcCgst, sgstAmt: calcSgst, vatAmt: calcVat, roundedTotal };
-  }, [foodSubtotal, drinkSubtotal, itemsTotal, serviceCharge, cgst, sgst, vat]);
+    return { discountAmt, serviceChargeAmt: totalSC, cgstAmt: calcCgst, sgstAmt: calcSgst, vatAmt: calcVat, roundedTotal, effectiveFoodSubtotal, effectiveDrinkSubtotal };
+  }, [foodSubtotal, drinkSubtotal, cgst, sgst, vat, serviceCharge, discount]);
 
   const actualParsed = parseFloat(actualTotal) || 0;
   const actualRounded = Math.round(actualParsed); 
@@ -59,10 +65,11 @@ export const SummaryScreen = ({ eventData, isDarkMode, onFinish }) => {
       try {
         await updateDoc(doc(db, 'events', eventData.id), {
           taxes: {
-            serviceChargeRate: parseFloat(serviceCharge) || 0,
             cgstRate: parseFloat(cgst) || 0,
             sgstRate: parseFloat(sgst) || 0,
             vatRate: parseFloat(vat) || 0,
+            serviceChargeRate: parseFloat(serviceCharge) || 0,
+            discountAmt: parseFloat(discount) || 0,
             serviceChargeAmt: taxMath.serviceChargeAmt,
             cgstAmt: taxMath.cgstAmt,
             sgstAmt: taxMath.sgstAmt,
@@ -74,7 +81,7 @@ export const SummaryScreen = ({ eventData, isDarkMode, onFinish }) => {
       } catch (e) { console.log("Failed to sync taxes live:", e); }
     }, 1000);
     return () => clearTimeout(pushTaxes);
-  }, [serviceCharge, cgst, sgst, vat, actualTotal, taxMath, eventData.id]);
+  }, [cgst, sgst, vat, serviceCharge, discount, actualTotal, taxMath, eventData.id]);
 
   let statusMessage = '';
   if (actualParsed > 0) {
@@ -90,10 +97,11 @@ export const SummaryScreen = ({ eventData, isDarkMode, onFinish }) => {
     try { await logEvent(getAnalytics(), 'math_verified', { total_amount: actualParsed }); } catch (e) { }
 
     onFinish({
-      serviceChargeRate: parseFloat(serviceCharge) || 0,
       cgstRate: parseFloat(cgst) || 0,
       sgstRate: parseFloat(sgst) || 0,
       vatRate: parseFloat(vat) || 0,
+      serviceChargeRate: parseFloat(serviceCharge) || 0,
+      discountAmt: parseFloat(discount) || 0,
       serviceChargeAmt: taxMath.serviceChargeAmt,
       cgstAmt: taxMath.cgstAmt,
       sgstAmt: taxMath.sgstAmt,
@@ -107,20 +115,22 @@ export const SummaryScreen = ({ eventData, isDarkMode, onFinish }) => {
 
   return (
     <KeyboardAvoidingView style={[styles.container, themeStyles.background]} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+      
+      <ScrollView 
+        contentContainerStyle={styles.scrollContent} 
+        keyboardShouldPersistTaps="handled" 
+        showsVerticalScrollIndicator={false}
+      >
         
         <Text style={[styles.title, themeStyles.text]}>Bill Summary</Text>
-        <Text style={themeStyles.subText}>Enter tax percentages to verify the grand total.</Text>
+        <Text style={themeStyles.subText}>Enter tax parameters to verify the grand total.</Text>
 
-        {/* THE FIX: Compact Horizontal Scroll for Receipts */}
         {allReceipts.length > 0 ? (
           <View style={styles.receiptsContainer}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingRight: 10 }}>
               {allReceipts.map((url, index) => (
                 <TouchableOpacity key={index} style={[styles.receiptBtn, themeStyles.receiptBtnBg]} onPress={() => Linking.openURL(url)}>
-                  <Text style={[styles.receiptBtnText, themeStyles.receiptBtnText]}>
-                    🧾 View Bill {index + 1}
-                  </Text>
+                  <Text style={[styles.receiptBtnText, themeStyles.receiptBtnText]}>🧾 View Bill {index + 1}</Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -130,11 +140,11 @@ export const SummaryScreen = ({ eventData, isDarkMode, onFinish }) => {
         <View style={[styles.card, themeStyles.card]}>
           <Text style={[styles.sectionTitle, themeStyles.text]}>Items Subtotal</Text>
           <View style={styles.row}>
-            <Text style={[styles.label, themeStyles.text]}>🍲 Food Subtotal</Text>
+            <Text style={[styles.label, themeStyles.text]}>🍲 Food</Text>
             <Text style={[styles.value, themeStyles.text]}>₹{foodSubtotal.toFixed(2)}</Text>
           </View>
           <View style={styles.row}>
-            <Text style={[styles.label, themeStyles.text]}>🍺 Drink Subtotal</Text>
+            <Text style={[styles.label, themeStyles.text]}>🍺 Drink</Text>
             <Text style={[styles.value, themeStyles.text]}>₹{drinkSubtotal.toFixed(2)}</Text>
           </View>
           <View style={[styles.divider, themeStyles.divider]} />
@@ -145,52 +155,59 @@ export const SummaryScreen = ({ eventData, isDarkMode, onFinish }) => {
         </View>
 
         <View style={[styles.card, themeStyles.card]}>
-          <Text style={[styles.sectionTitle, themeStyles.text]}>Taxes & Charges (%)</Text>
-          <View style={styles.inputRow}>
-            <View style={styles.inputLabelContainer}>
-              <Text style={[styles.inputLabel, themeStyles.text]}>Service Charge</Text>
-              <Text style={[styles.calcSubtext, themeStyles.subText]}>₹{taxMath.serviceChargeAmt.toFixed(2)}</Text>
-            </View>
-            <View style={[styles.inputContainer, themeStyles.inputBorder]}>
-              <TextInput style={[styles.input, themeStyles.inputText]} placeholder="0" placeholderTextColor={isDarkMode?'#9CA3AF':'#6B7280'} keyboardType="numeric" value={serviceCharge} onChangeText={setServiceCharge} />
-              <Text style={styles.percentSign}>%</Text>
-            </View>
-          </View>
-          <View style={styles.inputRow}>
-            <View style={styles.inputLabelContainer}>
-              <Text style={[styles.inputLabel, themeStyles.text]}>CGST (Food)</Text>
-              <Text style={[styles.calcSubtext, themeStyles.subText]}>₹{taxMath.cgstAmt.toFixed(2)}</Text>
-            </View>
+          <Text style={[styles.sectionTitle, themeStyles.text]}>Taxes & Charges</Text>
+          
+          <View style={styles.taxRow}>
+            <Text style={[styles.taxLabel, themeStyles.text]}>CGST</Text>
+            <Text style={[styles.calcSubtext, themeStyles.subText]}>₹{taxMath.cgstAmt.toFixed(2)}</Text>
             <View style={[styles.inputContainer, themeStyles.inputBorder]}>
               <TextInput style={[styles.input, themeStyles.inputText]} placeholder="0" placeholderTextColor={isDarkMode?'#9CA3AF':'#6B7280'} keyboardType="numeric" value={cgst} onChangeText={setCgst} />
               <Text style={styles.percentSign}>%</Text>
             </View>
           </View>
-          <View style={styles.inputRow}>
-            <View style={styles.inputLabelContainer}>
-              <Text style={[styles.inputLabel, themeStyles.text]}>SGST (Food)</Text>
-              <Text style={[styles.calcSubtext, themeStyles.subText]}>₹{taxMath.sgstAmt.toFixed(2)}</Text>
-            </View>
+
+          <View style={styles.taxRow}>
+            <Text style={[styles.taxLabel, themeStyles.text]}>SGST</Text>
+            <Text style={[styles.calcSubtext, themeStyles.subText]}>₹{taxMath.sgstAmt.toFixed(2)}</Text>
             <View style={[styles.inputContainer, themeStyles.inputBorder]}>
               <TextInput style={[styles.input, themeStyles.inputText]} placeholder="0" placeholderTextColor={isDarkMode?'#9CA3AF':'#6B7280'} keyboardType="numeric" value={sgst} onChangeText={setSgst} />
               <Text style={styles.percentSign}>%</Text>
             </View>
           </View>
-          <View style={styles.inputRow}>
-            <View style={styles.inputLabelContainer}>
-              <Text style={[styles.inputLabel, themeStyles.text]}>VAT (Liquor)</Text>
-              <Text style={[styles.calcSubtext, themeStyles.subText]}>₹{taxMath.vatAmt.toFixed(2)}</Text>
-            </View>
+
+          <View style={styles.taxRow}>
+            <Text style={[styles.taxLabel, themeStyles.text]}>VAT</Text>
+            <Text style={[styles.calcSubtext, themeStyles.subText]}>₹{taxMath.vatAmt.toFixed(2)}</Text>
             <View style={[styles.inputContainer, themeStyles.inputBorder]}>
               <TextInput style={[styles.input, themeStyles.inputText]} placeholder="0" placeholderTextColor={isDarkMode?'#9CA3AF':'#6B7280'} keyboardType="numeric" value={vat} onChangeText={setVat} />
               <Text style={styles.percentSign}>%</Text>
+            </View>
+          </View>
+
+          <View style={styles.taxRow}>
+            <Text style={[styles.taxLabel, themeStyles.text]}>Service Charge</Text>
+            <Text style={[styles.calcSubtext, themeStyles.subText]}>₹{taxMath.serviceChargeAmt.toFixed(2)}</Text>
+            <View style={[styles.inputContainer, themeStyles.inputBorder]}>
+              <TextInput style={[styles.input, themeStyles.inputText]} placeholder="0" placeholderTextColor={isDarkMode?'#9CA3AF':'#6B7280'} keyboardType="numeric" value={serviceCharge} onChangeText={setServiceCharge} />
+              <Text style={styles.percentSign}>%</Text>
+            </View>
+          </View>
+
+          <View style={[styles.divider, themeStyles.divider, {marginVertical: 12}]} />
+
+          <View style={styles.taxRow}>
+            <Text style={[styles.taxLabel, themeStyles.text]}>Discount</Text>
+            <Text style={[styles.calcSubtext, themeStyles.subText, {color: '#10B981'}]}>- ₹{taxMath.discountAmt.toFixed(2)}</Text>
+            <View style={[styles.inputContainer, themeStyles.inputBorder]}>
+              <Text style={styles.percentSign}>₹</Text>
+              <TextInput style={[styles.input, themeStyles.inputText, {textAlign: 'left', marginLeft: 4}]} placeholder="0" placeholderTextColor={isDarkMode?'#9CA3AF':'#6B7280'} keyboardType="numeric" value={discount} onChangeText={setDiscount} />
             </View>
           </View>
         </View>
 
         <View style={[styles.validationCard, isMatch ? styles.validationSuccess : (actualParsed > 0 ? styles.validationError : themeStyles.card)]}>
           <Text style={[styles.validationTitle, isMatch ? styles.textSuccess : (actualParsed > 0 ? styles.textError : themeStyles.text)]}>
-            Please check that the Grand Total matches your Actual Bill Amount.
+            Verify Grand Total matches actual Bill Amount.
           </Text>
           <View style={styles.totalCompareRow}>
             <View style={[styles.totalBox, themeStyles.inputBorder]}>
@@ -207,7 +224,8 @@ export const SummaryScreen = ({ eventData, isDarkMode, onFinish }) => {
         </View>
 
       </ScrollView>
-      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+      
+      <View style={[styles.footer, themeStyles.background, { paddingBottom: Math.max(insets.bottom, 20) }]}>
         <PulseButton onPress={handleNext} style={[styles.finishBtn, !isMatch && actualParsed > 0 ? {backgroundColor: '#9CA3AF'} : {}]}>
           <Text style={styles.finishBtnText}>Calculate Individual Shares</Text>
         </PulseButton>
@@ -221,29 +239,30 @@ const darkTheme = { background: { backgroundColor: '#111827' }, text: { color: '
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  scrollContent: { padding: 16, paddingBottom: 190 },
+  // THE KEYBOARD FIX: Padding bottom of 350 ensures the scroll view has massive empty space at the bottom.
+  // When Android resizes the screen, you can scroll the inputs completely clear of the "Validate" button.
+  scrollContent: { padding: 16, paddingBottom: 350 }, 
   title: { fontSize: 24, fontWeight: '900', textAlign: 'center', marginBottom: 4 },
   receiptsContainer: { marginBottom: 16, width: '100%' },
-  
-  // THE FIX: Updated button styles to be compact and horizontal
   receiptBtn: { paddingVertical: 10, paddingHorizontal: 16, borderRadius: 12, alignItems: 'center', borderWidth: 1, marginRight: 10 },
   receiptBtnText: { fontWeight: '800', fontSize: 13 },
-  
-  card: { padding: 12, borderRadius: 16, borderWidth: 1, marginBottom: 12 },
-  sectionTitle: { fontSize: 14, fontWeight: '800', marginBottom: 10, textTransform: 'uppercase', letterSpacing: 0.5 },
+  card: { padding: 16, borderRadius: 16, borderWidth: 1, marginBottom: 12 },
+  sectionTitle: { fontSize: 14, fontWeight: '800', marginBottom: 16, textTransform: 'uppercase', letterSpacing: 0.5 },
   row: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
   label: { fontSize: 15, fontWeight: '500' },
   value: { fontSize: 15, fontWeight: '700' },
   divider: { height: 1, marginVertical: 6 },
   boldLabel: { fontSize: 16, fontWeight: '800' },
   boldValue: { fontSize: 16, fontWeight: '900' },
-  inputRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }, 
-  inputLabelContainer: { flex: 1, paddingRight: 10 },
-  inputLabel: { fontSize: 14, fontWeight: '700' },
-  calcSubtext: { fontSize: 12, fontWeight: '600', textAlign: 'left', marginTop: 2, marginBottom: 0 },
-  inputContainer: { flex: 0.4, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderRadius: 8, paddingHorizontal: 8 },
-  percentSign: { fontSize: 16, fontWeight: '800', color: '#9CA3AF', marginLeft: 4 },
-  input: { flex: 1, paddingVertical: 4, fontSize: 16, textAlign: 'right', fontWeight: '800' }, 
+  
+  // ALIGNMENT FIX & TEXT RESTORATION
+  taxRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, height: 46 },
+  taxLabel: { flex: 2, fontSize: 14, fontWeight: '700', includeFontPadding: false, textAlignVertical: 'center' },
+  calcSubtext: { flex: 1.5, fontSize: 14, fontWeight: '800', textAlign: 'center', margin: 0, padding: 0, includeFontPadding: false, textAlignVertical: 'center' },
+  inputContainer: { flex: 1.2, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', borderWidth: 1, borderRadius: 8, paddingHorizontal: 8, height: 40 },
+  percentSign: { fontSize: 16, fontWeight: '800', color: '#9CA3AF' },
+  input: { flex: 1, fontSize: 16, textAlign: 'right', fontWeight: '800', height: '100%', padding: 0, margin: 0, includeFontPadding: false }, 
+  
   validationCard: { padding: 16, borderRadius: 16, borderWidth: 2, marginBottom: 16 },
   validationSuccess: { backgroundColor: '#ECFDF5', borderColor: '#10B981' },
   validationError: { backgroundColor: '#FEF2F2', borderColor: '#EF4444' },
@@ -257,7 +276,7 @@ const styles = StyleSheet.create({
   vsText: { fontSize: 14, fontWeight: '900', color: '#9CA3AF', marginHorizontal: 8 },
   actualInput: { fontSize: 24, fontWeight: '900', textAlign: 'center', width: '100%', padding: 0 },
   statusMessage: { textAlign: 'center', marginTop: 12, fontSize: 14, fontWeight: '900' },
-  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 16, paddingTop: 16, backgroundColor: 'transparent' },
+  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 16, paddingTop: 15, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' },
   finishBtn: { backgroundColor: '#5BC5A7', padding: 16, borderRadius: 16 },
   finishBtnText: { color: '#fff', fontWeight: '900', fontSize: 16, textAlign: 'center' }
 });

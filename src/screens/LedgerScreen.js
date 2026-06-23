@@ -4,6 +4,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import * as Print from 'expo-print';
 import ConfettiCannon from 'react-native-confetti-cannon';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { PulseButton } from '../components/PulseButton';
 import { updateDoc, doc, increment, arrayUnion } from 'firebase/firestore';
 import { db, auth } from '../services/firebase';
@@ -11,6 +12,7 @@ import { db, auth } from '../services/firebase';
 export const LedgerScreen = ({ eventData, isDarkMode, onExit }) => {
   const themeStyles = isDarkMode ? darkTheme : lightTheme;
   const [showConfetti, setShowConfetti] = useState(false);
+  const insets = useSafeAreaInsets(); // 🚀 FIXED: Init Insets
 
   const memberShares = useMemo(() => {
     if (!eventData.items || eventData.items.length === 0) return [];
@@ -334,7 +336,8 @@ export const LedgerScreen = ({ eventData, isDarkMode, onExit }) => {
         )}
       </ScrollView>
 
-      <View style={styles.footer}>
+      {/* 🚀 FIXED: Universal Absolute Footer applied with dynamic insets */}
+      <View style={[styles.footer, themeStyles.background, { paddingBottom: Math.max(insets.bottom, 20) }]}>
         <PulseButton onPress={onExit} style={[styles.dashboardBtn, themeStyles.primaryBtn]}>
           <Text style={[styles.dashboardBtnText, themeStyles.primaryBtnText]}>Save Event & Go Home</Text>
         </PulseButton>
@@ -354,7 +357,7 @@ const darkTheme = { background: { backgroundColor: '#111827' }, text: { color: '
 
 const styles = StyleSheet.create({ 
   container: { flex: 1 }, 
-  scrollContent: { padding: 20, paddingBottom: 100 }, 
+  scrollContent: { padding: 20, paddingBottom: 150 }, 
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 }, 
   emptyEmoji: { fontSize: 64, marginBottom: 20 }, 
   emptyTitle: { fontSize: 24, fontWeight: '900', marginBottom: 10 }, 
@@ -385,7 +388,7 @@ const styles = StyleSheet.create({
   settledMethod: { fontSize: 12, fontWeight: '700' }, 
   allClearedBox: { backgroundColor: '#ECFDF5', padding: 20, borderRadius: 16, alignItems: 'center', borderWidth: 1, borderColor: '#10B981', marginTop: 10 }, 
   allClearedText: { color: '#047857', fontSize: 18, fontWeight: '900' }, 
-  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, padding: 20, backgroundColor: 'transparent' }, 
-  dashboardBtn: { backgroundColor: '#111827', padding: 18, borderRadius: 16 }, 
-  dashboardBtnText: { color: '#fff', fontWeight: '900', fontSize: 16, textAlign: 'center' }
+  footer: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 20, paddingTop: 15, borderTopWidth: 1, borderTopColor: 'rgba(0,0,0,0.05)' }, 
+  dashboardBtn: { padding: 18, borderRadius: 16 }, 
+  dashboardBtnText: { fontWeight: '900', fontSize: 16, textAlign: 'center' }
 });

@@ -1,14 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, StatusBar, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, StatusBar, ActivityIndicator, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { doc, setDoc, onSnapshot } from 'firebase/firestore'; 
 import { auth, db, onAuthStateChanged, webAuthReady } from './src/services/firebase'; 
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 
-// 👇 FIXED: Restored the modern Modular v22 imports
 import { getAnalytics, logEvent, setUserId as setAnalyticsUserId } from '@react-native-firebase/analytics';
 import { getCrashlytics, log, setUserId as setCrashlyticsUserId, recordError } from '@react-native-firebase/crashlytics';
 
@@ -54,7 +53,6 @@ export default function App() {
       if (user) {
         try {
           const userId = user.phoneNumber || user.uid;
-          // 👇 FIXED: Modern modular syntax
           await Promise.all([
             setCrashlyticsUserId(getCrashlytics(), userId),
             setAnalyticsUserId(getAnalytics(), userId)
@@ -72,7 +70,6 @@ export default function App() {
         const savedTheme = await AsyncStorage.getItem('demitab_theme');
         if (savedTheme === 'dark') setIsDarkMode(true);
         
-        // 👇 FIXED: Modern modular syntax
         log(getCrashlytics(), 'App successfully booted.');
       } catch (e) { 
         console.error(e); 
@@ -128,7 +125,8 @@ export default function App() {
   if (isSplash || isLoading) {
     return (
       <View style={styles.splashContainer}>
-        <StatusBar hidden={true} translucent={true} />
+        {/* 🚀 FIXED: Global Status Bar configured to hide notifications/battery percentages immediately */}
+        <StatusBar hidden={true} />
         <View style={styles.logoBox}>
           <Text style={styles.logoText}>DemiTab</Text>
         </View>
@@ -138,103 +136,104 @@ export default function App() {
     );
   }
 
-  const MainTabs = () => (
-    <Tab.Navigator
-      screenOptions={{
-        headerShown: false,
-        tabBarStyle: {
-          backgroundColor: isDarkMode ? '#1F2937' : '#ffffff',
-          borderTopColor: isDarkMode ? '#374151' : '#E5E7EB',
-          paddingBottom: 5,
-          paddingTop: 5,
-          height: 60
-        },
-        tabBarActiveTintColor: '#5BC5A7',
-        tabBarInactiveTintColor: isDarkMode ? '#9CA3AF' : '#6B7280',
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '700' }
-      }}
-    >
-      <Tab.Screen 
-        name="Dashboard" 
-        options={{ tabBarIcon: () => <Text style={{fontSize: 20}}>🏠</Text> }}
+  const MainTabs = () => {
+    const insets = useSafeAreaInsets();
+    
+    return (
+      <Tab.Navigator
+        screenOptions={{
+          headerShown: false,
+          tabBarStyle: {
+            backgroundColor: isDarkMode ? '#1F2937' : '#ffffff',
+            borderTopColor: isDarkMode ? '#374151' : '#E5E7EB',
+            paddingBottom: Platform.OS === 'ios' ? insets.bottom : Math.max(insets.bottom, 10),
+            paddingTop: 5,
+            height: Platform.OS === 'ios' ? 60 + insets.bottom : 65 + insets.bottom,
+          },
+          tabBarActiveTintColor: '#5BC5A7',
+          tabBarInactiveTintColor: isDarkMode ? '#9CA3AF' : '#6B7280',
+          tabBarLabelStyle: { fontSize: 11, fontWeight: '700' }
+        }}
       >
-        {props => (
-          <DashboardScreen
-            {...props}
-            profile={profile}
-            isDarkMode={isDarkMode}
-            toggleTheme={toggleTheme}
-            onCreateEvent={async (name) => {
-              const newEventId = Date.now().toString();
-              const hostId = profile?.id || 'USER_ME';
-              
-              const newEvent = {
-                id: newEventId,
-                eventName: name,
-                eventDate: new Date().toLocaleDateString('en-GB'),
-                hostId: hostId,
-                memberIds: [hostId], 
-                members: [{ id: hostId, name: profile?.name ? profile.name.split(' ')[0] : 'Me' }],
-                items: [], taxes: {}, actualTotal: 0,
-                paymentStrategy: 'everyone', mainPayerId: hostId, settlements: {}
-              };
-
-              try {
-                await setDoc(doc(db, 'events', newEventId), newEvent);
+        <Tab.Screen 
+          name="Dashboard" 
+          options={{ tabBarIcon: () => <Text style={{fontSize: 20}}>🏠</Text> }}
+        >
+          {props => (
+            <DashboardScreen
+              {...props}
+              profile={profile}
+              isDarkMode={isDarkMode}
+              toggleTheme={toggleTheme}
+              onCreateEvent={async (name) => {
+                const newEventId = Date.now().toString();
+                const hostId = profile?.id || 'USER_ME';
                 
-                // 👇 FIXED: Modern modular syntax
-                await logEvent(getAnalytics(), 'create_event', { event_name: name });
-                
-                props.navigation.navigate('EventWorkspace', { activeEvent: newEvent });
-              } catch (error) {
-                // 👇 FIXED: Modern modular syntax
-                recordError(getCrashlytics(), error);
-                console.error("Error creating event in cloud", error);
-              }
-            }}
-            onOpenEvent={(evt) => {
-              props.navigation.navigate('EventWorkspace', { activeEvent: evt });
-            }}
-          />
-        )}
-      </Tab.Screen>
+                const newEvent = {
+                  id: newEventId,
+                  eventName: name,
+                  eventDate: new Date().toLocaleDateString('en-GB'),
+                  hostId: hostId,
+                  memberIds: [hostId], 
+                  members: [{ id: hostId, name: profile?.name ? profile.name.split(' ')[0] : 'Me' }],
+                  items: [], taxes: {}, actualTotal: 0,
+                  paymentStrategy: 'everyone', mainPayerId: hostId, settlements: {}
+                };
 
-      <Tab.Screen 
-        name="Global Ledger" 
-        options={{ tabBarIcon: () => <Text style={{fontSize: 20}}>📒</Text> }}
-      >
-        {() => (
-          <View style={[styles.container, { justifyContent: 'center', alignItems: 'center', backgroundColor: isDarkMode ? '#111827' : '#F9FAFB' }]}>
-            <Text style={{fontSize: 60, marginBottom: 20}}>🚧</Text>
-            <Text style={{color: isDarkMode ? '#fff' : '#111827', fontSize: 20, fontWeight: '900'}}>Global Ledger</Text>
-            <Text style={{color: '#6B7280', marginTop: 10, fontWeight: '600'}}>Coming right up! 🚀</Text>
-          </View>
-        )}
-      </Tab.Screen>
+                try {
+                  await setDoc(doc(db, 'events', newEventId), newEvent);
+                  await logEvent(getAnalytics(), 'create_event', { event_name: name });
+                  props.navigation.navigate('EventWorkspace', { activeEvent: newEvent });
+                } catch (error) {
+                  recordError(getCrashlytics(), error);
+                  console.error("Error creating event in cloud", error);
+                }
+              }}
+              onOpenEvent={(evt) => {
+                props.navigation.navigate('EventWorkspace', { activeEvent: evt });
+              }}
+            />
+          )}
+        </Tab.Screen>
 
-      <Tab.Screen 
-        name="Account" 
-        options={{ tabBarIcon: () => <Text style={{fontSize: 20}}>👤</Text> }}
-      >
-        {props => (
-          <ProfileScreen 
-            existingProfile={profile} 
-            isDarkMode={isDarkMode} 
-            onComplete={(p) => { setProfile(p); props.navigation.navigate('Dashboard'); }} 
-            onCancel={() => props.navigation.navigate('Dashboard')} 
-            onLogout={() => setProfile(null)} 
-          />
-        )}
-      </Tab.Screen>
-    </Tab.Navigator>
-  );
+        <Tab.Screen 
+          name="Global Ledger" 
+          options={{ tabBarIcon: () => <Text style={{fontSize: 20}}>📒</Text> }}
+        >
+          {() => (
+            <View style={[styles.container, { justifyContent: 'center', alignItems: 'center', backgroundColor: isDarkMode ? '#111827' : '#F9FAFB' }]}>
+              <Text style={{fontSize: 60, marginBottom: 20}}>🚧</Text>
+              <Text style={{color: isDarkMode ? '#fff' : '#111827', fontSize: 20, fontWeight: '900'}}>Global Ledger</Text>
+              <Text style={{color: '#6B7280', marginTop: 10, fontWeight: '600'}}>Coming right up! 🚀</Text>
+            </View>
+          )}
+        </Tab.Screen>
+
+        <Tab.Screen 
+          name="Account" 
+          options={{ tabBarIcon: () => <Text style={{fontSize: 20}}>👤</Text> }}
+        >
+          {props => (
+            <ProfileScreen 
+              existingProfile={profile} 
+              isDarkMode={isDarkMode} 
+              onComplete={(p) => { setProfile(p); props.navigation.navigate('Dashboard'); }} 
+              onCancel={() => props.navigation.navigate('Dashboard')} 
+              onLogout={() => setProfile(null)} 
+            />
+          )}
+        </Tab.Screen>
+      </Tab.Navigator>
+    );
+  };
 
   const safeAreaBg = isDarkMode ? '#111827' : '#F4F5F4';
 
   return (
     <SafeAreaProvider>
       <View style={[styles.container, { backgroundColor: safeAreaBg }]}>
-        <StatusBar hidden={true} translucent={true} />
+        {/* 🚀 FIXED: Keeps status indicators hidden through active viewport executions */}
+        <StatusBar hidden={true} />
         <NavigationContainer
           ref={navigationRef}
           onReady={() => {
